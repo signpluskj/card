@@ -3,6 +3,17 @@ const DEFAULT_API_URL =
     window.__ENV__ &&
     window.__ENV__.API_URL) ||
   "https://script.google.com/macros/s/AKfycbx1O_Ab6n1j2py4A6Qck48fSY8N_J1wTiZF97y09HzW21kHgCinR1K2rCWiZmONG8mJ/exec";
+
+const SUPABASE_URL = (window.__ENV__ && window.__ENV__.SUPABASE_URL) || "";
+const SUPABASE_KEY = (window.__ENV__ && window.__ENV__.SUPABASE_KEY) || "";
+
+let supabaseClient = null;
+if (typeof window.supabase !== "undefined" && SUPABASE_URL && SUPABASE_KEY) {
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+} else if (typeof supabasejs !== "undefined" && SUPABASE_URL && SUPABASE_KEY) {
+  supabaseClient = supabasejs.createClient(SUPABASE_URL, SUPABASE_KEY);
+}
+
 const state = {
   apiUrl: DEFAULT_API_URL,
   user: null,
@@ -11,31 +22,68 @@ const state = {
     areas: [],
     completions: [],
     visits: [],
-    evangelists: []
+    evangelists: [],
+    assignments: [],
+    deletedCards: []
   },
   selectedArea: null,
   selectedCard: null,
   expandedAreaId: null,
+  isSuperAdmin: false,
   view: "cards",
   sortOrder: "number",
   searchQuery: "",
   filterArea: "all",
   filterStatus: "all",
   filterVisit: "all",
+  adminCardsAreaId: null,
+  adminCardsSelectedKey: null,
+  adminBannedAreaId: null,
+  adminBannedSelectedKey: null,
+  completionExpandedAreaId: null,
   editingVisit: null,
-  statusTimer: null
+  statusTimer: null,
+  scrollToSelectedCard: false,
+  scrollAreaToTop: false,
+  participantsToday: [],
+  carAssignments: [],
+  selectedCards: [],
+  currentMenu: "cards",
+  inviteCampaign: null,
+  inviteStats: null,
+  volunteerWeeks: [],
+  selectedVolunteerWeekStart: "",
+  selectedVolunteerDate: "",
+  selectedVolunteerSlot: "오전",
+  carAssignDate: "",
+  carAssignSlot: "오전",
+  carAssignAssignmentsDate: "",
+  carAssignAssignmentsAll: [],
+  volunteerDayRowScrollLeft: 0
 };
+
+let carAssignTapSelection = null;
+let carAssignCardSelection = null;
+let carAssignCardMultiSelection = [];
 
 const elements = {
   configPanel: document.getElementById("config-panel"),
   loginPanel: document.getElementById("login-panel"),
   dashboard: document.getElementById("dashboard"),
+  menuToggle: document.getElementById("menu-toggle"),
+  menuClose: document.getElementById("menu-close"),
+  sideMenu: document.getElementById("side-menu"),
+  appTitle: document.getElementById("app-title"),
   nameInput: document.getElementById("name-input"),
   passwordInput: document.getElementById("password-input"),
   loginButton: document.getElementById("login-button"),
   apiUrlInput: document.getElementById("api-url-input"),
   saveApiUrl: document.getElementById("save-api-url"),
+  closeConfig: document.getElementById("close-config"),
+  syncToSupabase: document.getElementById("sync-to-supabase"),
+  syncToSheets: document.getElementById("sync-to-sheets"),
   userInfo: document.getElementById("user-info"),
+  carInfo: document.getElementById("car-info"),
   areaList: document.getElementById("area-list"),
   areaTitle: document.getElementById("area-title"),
   cardList: document.getElementById("card-list"),
@@ -46,26 +94,138 @@ const elements = {
   visitResult: document.getElementById("visit-result"),
   visitNote: document.getElementById("visit-note"),
   visitTitle: document.getElementById("visit-title"),
+  visitClearRevisit: document.getElementById("visit-clear-revisit"),
+  visitClearStudy: document.getElementById("visit-clear-study"),
+  visitClearSix: document.getElementById("visit-clear-six"),
+  visitClearBanned: document.getElementById("visit-clear-banned"),
   statusMessage: document.getElementById("status-message"),
-  leaderActions: document.getElementById("leader-actions"),
-  startService: document.getElementById("start-service"),
   areaOverlay: document.getElementById("area-overlay"),
   closeAreas: document.getElementById("close-areas"),
   areaListOverlay: document.getElementById("area-list-overlay"),
+  completionOverlay: document.getElementById("completion-overlay"),
+  closeCompletion: document.getElementById("close-completion"),
+  completionAreaList: document.getElementById("completion-area-list"),
+  volunteerOverlay: document.getElementById("volunteer-overlay"),
+  closeVolunteer: document.getElementById("close-volunteer"),
+  volunteerBody: document.getElementById("volunteer-body"),
+  carAssignOverlay: document.getElementById("car-assign-overlay"),
+  closeCarAssign: document.getElementById("close-car-assign"),
+  adminOverlay: document.getElementById("admin-overlay"),
+  closeAdmin: document.getElementById("close-admin"),
+  carAssignEvangelistList: document.getElementById("car-assign-evangelist-list"),
+  carAssignSelected: document.getElementById("car-assign-selected"),
+  carAssignMeta: document.getElementById("car-assign-meta"),
+  carAssignTodayDisplay: document.getElementById("car-assign-today-display"),
+  carAssignDayList: document.getElementById("car-assign-day-list"),
+  carAssignSlotList: document.getElementById("car-assign-slot-list"),
+  carAssignAuto: document.getElementById("car-assign-auto"),
+  carAssignAdd: document.getElementById("car-assign-add"),
+  carAssignReset: document.getElementById("car-assign-reset"),
+  carAssignSave: document.getElementById("car-assign-save"),
+  carAssignAssignCards: document.getElementById("car-assign-assign-cards"),
+  carSelectOverlay: document.getElementById("car-select-overlay"),
+  closeCarSelect: document.getElementById("close-car-select"),
+  carSelectList: document.getElementById("car-select-list"),
   adminPanel: document.getElementById("admin-panel"),
   completionList: document.getElementById("completion-list"),
   visitList: document.getElementById("visit-list"),
   evangelistList: document.getElementById("evangelist-list"),
+  carAssignPanel: document.getElementById("car-assign-panel"),
+  bannedCardList: document.getElementById("banned-card-list"),
+  deletedCardList: document.getElementById("deleted-card-list"),
   searchInput: document.getElementById("search-input"),
   searchButton: document.getElementById("search-button"),
   filterArea: document.getElementById("filter-area"),
   filterVisit: document.getElementById("filter-visit"),
   areaListInline: document.getElementById("area-list-inline"),
   loadingIndicator: document.getElementById("loading-indicator"),
-  loadingText: document.getElementById("loading-text")
+  loadingText: document.getElementById("loading-text"),
+  adminEvAdd: document.getElementById("admin-ev-add"),
+  adminEvDelete: document.getElementById("admin-ev-delete"),
+  inviteOverlay: document.getElementById("invite-overlay"),
+  closeInvite: document.getElementById("close-invite"),
+  inviteMeta: document.getElementById("invite-meta"),
+  inviteStart: document.getElementById("invite-start"),
+  inviteStop: document.getElementById("invite-stop"),
+  inviteRefresh: document.getElementById("invite-refresh"),
+  inviteStats: document.getElementById("invite-stats"),
+  backupToExcel: document.getElementById("backup-to-excel")
 };
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const openCarSelectPopup = (areaId, cardNumbers) => {
+  const cars = state.carAssignments || [];
+  if (!elements.carSelectOverlay || !elements.carSelectList || !cars.length) {
+    return;
+  }
+  elements.carSelectList.innerHTML = "";
+  cars.forEach((car) => {
+    const driverName = car.driver ? String(car.driver) : "";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "car-select-btn";
+    btn.textContent = driverName
+      ? `차량 ${car.carId} (${driverName})`
+      : `차량 ${car.carId}`;
+    btn.addEventListener("click", async () => {
+      const pairs = cardNumbers.map((cardNumber) => ({
+        cardNumber: String(cardNumber),
+        carId: String(car.carId || "")
+      }));
+      const assignDate = state.carAssignDate || todayISO();
+      setLoading(true, "카드 차량 배정 중...");
+      try {
+        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+        
+        for (const pair of pairs) {
+          const { error: updateError } = await supabaseClient
+            .from("cards")
+            .update({ car_id: pair.carId, assignment_date: assignDate })
+            .eq("area_id", String(areaId))
+            .eq("card_number", String(pair.cardNumber));
+            
+          if (updateError) throw updateError;
+          
+          // 로컬 상태 즉시 업데이트
+          const localCard = state.data.cards.find(c => 
+            String(c["구역번호"]) === String(areaId) && String(c["카드번호"]) === String(pair.cardNumber)
+          );
+          if (localCard) {
+            localCard["차량"] = pair.carId;
+            localCard["배정날짜"] = assignDate;
+          }
+        }
+        
+        state.selectedCards = [];
+        renderAreas();
+        renderCards();
+        renderAdminPanel();
+        renderMyCarInfo();
+        setStatus("선택한 카드가 차량에 배정되었습니다.");
+        elements.carSelectOverlay.classList.add("hidden");
+      } catch (err) {
+        console.error("Assign cards to cars error:", err);
+        alert("카드 배정에 실패했습니다: " + err.message);
+      } finally {
+        setLoading(false);
+      }
+    });
+    elements.carSelectList.appendChild(btn);
+  });
+  elements.carSelectOverlay.classList.remove("hidden");
+};
+
+const getCardAssignedCarIdForDate = (card, isoDate) => {
+  const carId = String((card && card["차량"]) || "");
+  if (!carId) {
+    return "";
+  }
+  const cardDateText = toAssignmentDateText(card && card["배정날짜"]);
+  const targetDateText = toAssignmentDateText(isoDate);
+  if (!cardDateText || !targetDateText || cardDateText !== targetDateText) {
+    return "";
+  }
+  return carId;
+};
 
 const isSameDay = (value, isoString) => {
   if (!value) {
@@ -83,66 +243,70 @@ const isSameDay = (value, isoString) => {
   );
 };
 
-const formatDate = (value) => {
-  if (!value) {
+const getCardTownLabel = (card) => {
+  const direct = String(card["읍면동"] || "").trim();
+  if (direct) {
+    return direct;
+  }
+  const areaId = String(card["구역번호"] || "").trim();
+  if (!areaId) {
     return "";
   }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
+  const areaRow =
+    (state.data.areas || []).find((row) => {
+      const raw = String(row["구역번호"] || "").trim();
+      return raw === areaId || raw.startsWith(areaId + " ");
+    }) || null;
+  if (!areaRow) {
+    return "";
   }
-  const yy = String(date.getFullYear()).slice(-2);
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${yy}/${mm}/${dd}`;
+  const rawLabel = String(areaRow["구역번호"] || "");
+  const m = rawLabel.match(/\((.+)\)/);
+  return m ? m[1].trim() : "";
 };
 
-const toISODate = (value) => {
-  const d = parseVisitDate(value);
-  if (!d) {
-    return todayISO();
+const isKslArea = (areaId) => {
+  const id = String(areaId || "").trim();
+  if (!id) {
+    return false;
   }
-  const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-  return z.toISOString().slice(0, 10);
-};
-
-const isTrueValue = (value) =>
-  value === true ||
-  value === "TRUE" ||
-  value === "true" ||
-  value === "Y" ||
-  value === "1" ||
-  value === 1;
-
-const getVisitDateValue = (row) =>
-  row["방문일"] ||
-  row["방문날짜"] ||
-  row["방문일자"] ||
-  row["날짜"] ||
-  row["방문일시"] ||
-  row["일자"] ||
-  "";
-
-const getVisitCardNumber = (row) => row["카드번호"] || row["구역카드"] || "";
-
-const parseVisitDate = (value) => {
-  if (!value) {
-    return null;
+  if (id.includes("찾기봉사")) {
+    return true;
   }
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value;
+  const areaRows = state.data.areas || [];
+  const row =
+    areaRows.find((r) => {
+      const raw = String(r["구역번호"] || "").trim();
+      if (!raw) {
+        return false;
+      }
+      return raw === id || raw.startsWith(id + " ") || id.startsWith(raw + " ");
+    }) || null;
+  if (row) {
+    const rowHasKsl = Object.keys(row).some((key) => {
+      const v = row[key];
+      return v != null && String(v).includes("찾기봉사");
+    });
+    if (rowHasKsl) {
+      return true;
+    }
   }
-  const text = String(value).trim().replace(/\s+/g, "");
-  const m = text.match(/^(\d{2,4})[./-](\d{1,2})[./-](\d{1,2})$/);
-  if (m) {
-    const y = m[1].length === 2 ? 2000 + Number(m[1]) : Number(m[1]);
-    const mo = Number(m[2]) - 1;
-    const d = Number(m[3]);
-    const dt = new Date(y, mo, d);
-    return Number.isNaN(dt.getTime()) ? null : dt;
+  const cards = (state.data.cards || []).filter(
+    (card) => String(card["구역번호"] || card.area || "").trim() === id
+  );
+  if (cards.length) {
+    const cardHasKsl = cards.some((card) => {
+      const num = String(card["카드번호"] || "").trim();
+      const name = String(
+        card["구역이름"] || card["구역명"] || card["구역"] || ""
+      ).trim();
+      return num.includes("찾기") || name.includes("찾기봉사");
+    });
+    if (cardHasKsl) {
+      return true;
+    }
   }
-  const parsed = new Date(text.replace(/\./g, "-").replace(/\//g, "-"));
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  return false;
 };
 
 const setStatus = (message) => {
@@ -166,67 +330,2219 @@ const setLoading = (isLoading, message) => {
   elements.loadingIndicator.classList.toggle("hidden", !isLoading);
 };
 
+const renderMyCarInfo = () => {
+  const box = elements.carInfo;
+  if (!box || !state.user) {
+    return;
+  }
+  const rows = state.data.assignments || [];
+  const name = state.user.name;
+  
+  const showNoInfo = () => {
+    box.innerHTML = '<div class="car-info-main">오늘 배정된 차량 정보가 없습니다.</div>';
+    box.classList.remove("hidden");
+  };
+
+  if (!rows.length || !name) {
+    showNoInfo();
+    return;
+  }
+  const myRow =
+    rows.find(
+      (row) =>
+        normalizeAssignmentName(row["이름"]) === normalizeAssignmentName(name)
+    ) || null;
+  if (!myRow) {
+    showNoInfo();
+    return;
+  }
+  const carId = String(myRow["차량"] || "");
+  if (!carId) {
+    showNoInfo();
+    return;
+  }
+  const sameCar = rows.filter(
+    (row) => String(row["차량"] || "") === carId
+  );
+  const driverRow =
+    sameCar.find((row) => String(row["역할"] || "") === "운전자") || null;
+  const driverName = driverRow ? String(driverRow["이름"] || "") : "";
+  const passengerNames = sameCar
+    .filter((row) => String(row["역할"] || "") !== "운전자")
+    .map((row) => normalizeAssignmentName(row["이름"]))
+    .filter(Boolean);
+  const passengers = Array.from(new Set(passengerNames));
+  const textParts = [];
+  textParts.push(`차량 ${carId}`);
+  if (driverName) {
+    textParts.push(`운전자: ${driverName}`);
+  }
+  if (passengers.length) {
+    textParts.push(passengers.join(", "));
+  }
+  const lines = [];
+  lines.push(`<div class="car-info-main">${textParts.join(" | ")}</div>`);
+  
+  const cards = (state.data.cards || []).filter(
+    (card) => getCardAssignedCarIdForDate(card, todayISO()) === carId
+  );
+  if (cards.length) {
+    const labels = cards
+      .slice()
+      .sort((a, b) =>
+        compareCardNumbers(a["카드번호"] || "", b["카드번호"] || "")
+      )
+      .map((card) => String(card["카드번호"] || ""));
+    lines.push(`<div class="car-info-separator"></div>`);
+    lines.push(`<div class="card-info-main">${labels.join(", ")}</div>`);
+  }
+  box.innerHTML = lines.join("");
+  box.classList.remove("hidden");
+};
+
+const getEvangelistByName = (name) =>
+  (state.data.evangelists || []).find(
+    (row) => String(row["이름"] || "") === String(name || "")
+  ) || null;
+
+const sanitizeAssignmentRows = (rows) => {
+  return (rows || []).map((row) => {
+    if (!row || typeof row !== "object") {
+      return row;
+    }
+    const normalized = Object.assign({}, row);
+    normalized["이름"] = normalizeAssignmentName(row["이름"]);
+    return normalized;
+  });
+};
+
+const buildInitialParticipantsFromAssignments = () => {
+  const names =
+    (state.data.assignments || []).map((row) =>
+      normalizeAssignmentName(row["이름"])
+    ) || [];
+  state.participantsToday = Array.from(new Set(names));
+};
+
+const buildCarAssignmentsFromServer = () => {
+  const rows = state.data.assignments || [];
+  const byCar = {};
+  rows.forEach((row) => {
+    const carId = String(row["차량"] || "");
+    const name = normalizeAssignmentName(row["이름"]);
+    const role = String(row["역할"] || "");
+    if (!carId || !name) {
+      return;
+    }
+    if (!byCar[carId]) {
+      byCar[carId] = {
+        carId,
+        driver: "",
+        capacity: 0,
+        members: []
+      };
+    }
+    if (role === "운전자") {
+      byCar[carId].driver = name;
+      const ev = getEvangelistByName(name);
+      const cap = ev && ev["차량"] != null ? Number(ev["차량"]) || 0 : 0;
+      byCar[carId].capacity = cap || byCar[carId].capacity || 0;
+    }
+    if (!byCar[carId].members.includes(name)) {
+      byCar[carId].members.push(name);
+    }
+  });
+  state.carAssignments = Object.keys(byCar).map((key) => byCar[key]);
+};
+
+const ensureAssignmentState = () => {
+  if (!state.participantsToday.length && (state.data.assignments || []).length) {
+    buildInitialParticipantsFromAssignments();
+  }
+  if (!state.carAssignments.length && (state.data.assignments || []).length) {
+    buildCarAssignmentsFromServer();
+  }
+};
+
+const resetCarAssignmentsFromSaved = () => {
+  const has = (state.data.assignments || []).length > 0;
+  if (has) {
+    buildInitialParticipantsFromAssignments();
+    buildCarAssignmentsFromServer();
+  } else {
+    state.participantsToday = [];
+    state.carAssignments = [];
+  }
+};
+
+const autoAssignCars = () => {
+  const all = state.participantsToday.slice();
+  const evangelists = all
+    .map((name) => {
+      const found = getEvangelistByName(name);
+      if (found) {
+        return found;
+      }
+      return { 이름: name };
+    })
+    .filter((row) => String(row["이름"] || ""));
+  if (!evangelists.length) {
+    alert("선택된 전도인이 없습니다.");
+    return;
+  }
+  const driverEv = [];
+  const nonDriverEv = [];
+  evangelists.forEach((e) => {
+    const isDriver = isTrueValue(e["운전자"]);
+    const cap = e["차량"] != null ? Number(e["차량"]) || 0 : 0;
+    if (isDriver && cap > 0) {
+      driverEv.push(e);
+    } else {
+      nonDriverEv.push(e);
+    }
+  });
+  if (!driverEv.length) {
+    alert("운전자로 설정된 전도인이 없습니다.");
+    return;
+  }
+  const sortedDrivers = driverEv.slice().sort((a, b) => {
+    const capA = a["차량"] != null ? Number(a["차량"]) || 0 : 0;
+    const capB = b["차량"] != null ? Number(b["차량"]) || 0 : 0;
+    return capB - capA;
+  });
+  const activeDrivers = [];
+  let capacitySum = 0;
+  const totalPeople = evangelists.length;
+  sortedDrivers.forEach((e) => {
+    if (capacitySum >= totalPeople) {
+      nonDriverEv.push(e);
+      return;
+    }
+    const cap = e["차량"] != null ? Number(e["차량"]) || 0 : 0;
+    activeDrivers.push(e);
+    capacitySum += cap || 0;
+  });
+  const evByName = {};
+  evangelists.forEach((e) => {
+    const n = String(e["이름"] || "");
+    if (n) {
+      evByName[n] = e;
+    }
+  });
+  const cars = activeDrivers.map((d, idx) => {
+    const cap = d["차량"] != null ? Number(d["차량"]) || 0 : 0;
+    return {
+      carId: String(idx + 1),
+      driver: d["이름"],
+      capacity: cap || 0,
+      members: [d["이름"]],
+      hasDeaf: isTrueValue(d["농인"]),
+      maleCount: String(d["성별"] || "") === "남" ? 1 : 0,
+      femaleCount: String(d["성별"] || "") === "여" ? 1 : 0
+    };
+  });
+  const assignedNames = new Set();
+  cars.forEach((c) => {
+    (c.members || []).forEach((n) => {
+      assignedNames.add(String(n));
+    });
+  });
+  const driverSpouseNames = new Set();
+  cars.forEach((car) => {
+    const driverName = String(car.driver || "");
+    if (!driverName) {
+      return;
+    }
+    const ev = evByName[driverName];
+    if (!ev) {
+      return;
+    }
+    const spouseName = String(ev["부부"] || "");
+    if (!spouseName) {
+      return;
+    }
+    if (driverSpouseNames.has(spouseName)) {
+      return;
+    }
+    const spouseEv = evByName[spouseName];
+    if (!spouseEv) {
+      return;
+    }
+    if (!all.includes(spouseName)) {
+      return;
+    }
+    const cap = car.capacity || 0;
+    if (cap && car.members.length >= cap) {
+      return;
+    }
+    if (!car.members.includes(spouseName)) {
+      car.members.push(spouseName);
+      assignedNames.add(spouseName);
+      driverSpouseNames.add(spouseName);
+      const gender = String(spouseEv["성별"] || "");
+      if (gender === "남") {
+        car.maleCount += 1;
+      } else if (gender === "여") {
+        car.femaleCount += 1;
+      }
+      if (isTrueValue(spouseEv["농인"])) {
+        car.hasDeaf = true;
+      }
+    }
+  });
+  const makePerson = (row) => ({
+    name: row["이름"],
+    isDeaf: isTrueValue(row["농인"]),
+    gender: String(row["성별"] || ""),
+    spouse: String(row["부부"] || "")
+  });
+  const others = evangelists.filter(
+    (e) =>
+      !activeDrivers.includes(e) &&
+      !driverSpouseNames.has(String(e["이름"] || ""))
+  );
+  const nonDriverPeople = others.map(makePerson);
+  const deafPeople = nonDriverPeople.filter((p) => p.isDeaf);
+  const normalPeople = nonDriverPeople.filter((p) => !p.isDeaf);
+  const assignToCar = (person) => {
+    if (!person || !person.name) {
+      return;
+    }
+    if (assignedNames.has(String(person.name))) {
+      return;
+    }
+    const spouseName = String(person.spouse || "");
+    const spouseEv = spouseName ? evByName[spouseName] : null;
+    const spouseAvailable =
+      spouseEv &&
+      all.includes(spouseName) &&
+      !assignedNames.has(spouseName) &&
+      others.includes(spouseEv);
+    const requiredSeats = spouseAvailable ? 2 : 1;
+    const candidates = cars.filter(
+      (c) =>
+        c.capacity === 0 ||
+        (c.members.length + requiredSeats <= c.capacity)
+    );
+    if (!candidates.length) {
+      return;
+    }
+    let target = null;
+    if (person.isDeaf) {
+      const preferred = candidates.filter((c) => !c.hasDeaf);
+      const list = preferred.length ? preferred : candidates;
+      target = list.reduce((best, c) => {
+        if (!best) return c;
+        const seatsBest =
+          (best.capacity || 0) - (best.members.length || 0);
+        const seatsC = (c.capacity || 0) - (c.members.length || 0);
+        return seatsC > seatsBest ? c : best;
+      }, null);
+    } else if (person.gender === "여") {
+      const preferred = candidates.filter(
+        (c) => c.femaleCount >= 1 || c.maleCount === 0
+      );
+      const list = preferred.length ? preferred : candidates;
+      target = list.reduce((best, c) => {
+        if (!best) return c;
+        const seatsBest =
+          (best.capacity || 0) - (best.members.length || 0);
+        const seatsC = (c.capacity || 0) - (c.members.length || 0);
+        return seatsC > seatsBest ? c : best;
+      }, null);
+    } else {
+      target = candidates.reduce((best, c) => {
+        if (!best) return c;
+        const seatsBest =
+          (best.capacity || 0) - (best.members.length || 0);
+        const seatsC = (c.capacity || 0) - (c.members.length || 0);
+        return seatsC > seatsBest ? c : best;
+      }, null);
+    }
+    if (!target) {
+      return;
+    }
+    const addPersonToCar = (name, evRow, info) => {
+      if (!name) {
+        return;
+      }
+      if (assignedNames.has(String(name))) {
+        return;
+      }
+      if (!target.members.includes(name)) {
+        target.members.push(name);
+      }
+      assignedNames.add(String(name));
+      const gender = String(info.gender || "");
+      if (gender === "남") {
+        target.maleCount += 1;
+      } else if (gender === "여") {
+        target.femaleCount += 1;
+      }
+      if (info.isDeaf) {
+        target.hasDeaf = true;
+      }
+    };
+    addPersonToCar(person.name, evByName[person.name] || null, person);
+    if (spouseAvailable) {
+      const spouseInfo = makePerson(spouseEv);
+      addPersonToCar(spouseName, spouseEv, spouseInfo);
+    }
+  };
+  deafPeople.forEach(assignToCar);
+  normalPeople.forEach(assignToCar);
+  const seenNames = new Set();
+  cars.forEach((car) => {
+    const driverName = String(car.driver || "");
+    const uniqueMembers = [];
+    const localSeen = new Set();
+    if (driverName) {
+      if (!seenNames.has(driverName)) {
+        uniqueMembers.push(driverName);
+        seenNames.add(driverName);
+        localSeen.add(driverName);
+      } else {
+        car.driver = "";
+      }
+    }
+    (car.members || []).forEach((name) => {
+      const key = String(name || "");
+      if (!key || key === driverName) {
+        return;
+      }
+      if (localSeen.has(key) || seenNames.has(key)) {
+        return;
+      }
+      localSeen.add(key);
+      seenNames.add(key);
+      uniqueMembers.push(key);
+    });
+    car.members = uniqueMembers;
+  });
+  state.carAssignments = cars.map((c) => ({
+    carId: c.carId,
+    driver: c.driver,
+    capacity: c.capacity,
+    members: c.members || []
+  }));
+  renderCarAssignmentsPanel();
+};
+
+const saveCarAssignments = async () => {
+  if (!supabaseClient) return;
+  const validCars =
+    state.carAssignments.filter((car) => {
+      const hasDriver = Boolean(car.driver);
+      const hasMembers = (car.members || []).some((name) => Boolean(name));
+      return hasDriver || hasMembers;
+    }) || [];
+
+  const currentDate = state.carAssignDate || todayISO();
+  const currentSlot = state.carAssignSlot || "오전";
+
+  const newAssignments = [];
+  validCars.forEach((car) => {
+    newAssignments.push({
+      date: currentDate,
+      slot: currentSlot,
+      car_id: String(car.carId),
+      driver: car.driver || "",
+      passengers: car.members || []
+    });
+  });
+
+  setLoading(true, "차량 배정 저장 중...");
+  try {
+    // 1. 기존 해당 날짜/시간대 배정 삭제
+    const { error: deleteError } = await supabaseClient
+      .from("car_assignments")
+      .delete()
+      .eq("date", currentDate)
+      .eq("slot", currentSlot);
+
+    if (deleteError) throw deleteError;
+
+    // 2. 새 배정 저장
+    if (newAssignments.length > 0) {
+      const { error: insertError } = await supabaseClient
+        .from("car_assignments")
+        .insert(newAssignments);
+      if (insertError) throw insertError;
+    }
+
+    // 3. 로컬 상태 업데이트를 위해 다시 로드
+    const { data: allAssignments, error: fetchError } = await supabaseClient
+      .from("car_assignments")
+      .select("*")
+      .eq("date", currentDate);
+
+    if (fetchError) throw fetchError;
+
+    state.carAssignAssignmentsDate = currentDate;
+    state.carAssignAssignmentsAll = (allAssignments || []).map(a => ({
+      "날짜": a.date,
+      "시간대": a.slot,
+      "차량": a.car_id,
+      "이름": a.driver,
+      "동승자": a.passengers || []
+    }));
+
+    // 4. 구역카드 차량 배정 정보 업데이트
+    const cards = state.data.cards || [];
+    const toUpdateCards = [];
+    cards.forEach((card) => {
+      const carId = getCardAssignedCarIdForDate(card, currentDate);
+      if (carId) {
+        toUpdateCards.push({
+          area_id: String(card["구역번호"]),
+          card_number: String(card["카드번호"]),
+          car_id: String(carId),
+          assignment_date: currentDate
+        });
+      }
+    });
+
+    if (toUpdateCards.length > 0) {
+      for (const cardData of toUpdateCards) {
+        await supabaseClient
+          .from("cards")
+          .update({ car_id: cardData.car_id, assignment_date: cardData.assignment_date })
+          .eq("area_id", cardData.area_id)
+          .eq("card_number", cardData.card_number);
+      }
+    }
+
+    applyCarAssignDataForSlot(currentDate, currentSlot);
+    renderAreas();
+    renderCards();
+    renderAdminPanel();
+    renderMyCarInfo();
+    setStatus("차량 배정이 저장되었습니다.");
+    renderCarAssignPopup();
+  } catch (err) {
+    console.error("Save car assignments error:", err);
+    alert("차량 배정 저장에 실패했습니다: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const resetCarAssignmentsOnServer = async () => {
+  setLoading(true, "차량 배정 초기화 중...");
+  try {
+    const targetDate = state.carAssignDate || state.selectedVolunteerDate || todayISO();
+    const targetSlot = state.carAssignSlot || "오전";
+    
+    if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+    
+    // 1. 해당 날짜/시간대의 차량 배정 삭제
+    const { error: deleteError } = await supabaseClient
+      .from("car_assignments")
+      .delete()
+      .eq("date", targetDate)
+      .eq("slot", targetSlot);
+      
+    if (deleteError) throw deleteError;
+    
+    // 2. 해당 날짜에 배정된 카드의 차량 정보 초기화
+    const { error: updateError } = await supabaseClient
+      .from("cards")
+      .update({ car_id: null, assignment_date: null })
+      .eq("assignment_date", targetDate);
+      
+    if (updateError) throw updateError;
+    
+    // 3. 데이터 다시 불러오기 및 UI 갱신
+    await refreshAll();
+    setStatus("차량 배정이 초기화되었습니다.");
+  } catch (err) {
+    console.error("Reset car assignments error:", err);
+    alert("차량 배정 초기화에 실패했습니다: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const renderCarAssignDayRow = () => {
+  const container = elements.carAssignDayList;
+  if (!container) {
+    return;
+  }
+  
+  if (elements.carAssignTodayDisplay) {
+    const weekdayFullMap = {
+      월: "월요일", 화: "화요일", 수: "수요일", 목: "목요일",
+      금: "금요일", 토: "토요일", 일: "일요일"
+    };
+    const todayDate = new Date();
+    const todayYear = todayDate.getFullYear();
+    const todayMonth = todayDate.getMonth() + 1;
+    const todayDay = todayDate.getDate();
+    const todayWeekday = weekdayFullMap[["일", "월", "화", "수", "목", "금", "토"][todayDate.getDay()]] || "";
+    elements.carAssignTodayDisplay.innerHTML = `<div class="volunteer-today-text">오늘은</div><div class="volunteer-today-date">${todayYear}년 ${todayMonth}월 ${todayDay}일 ${todayWeekday}</div>`;
+  }
+
+  container.innerHTML = "";
+  const days = buildVolunteerDayList();
+  const current = state.carAssignDate || todayISO();
+  if (!days.length) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "weekday-chip active";
+    btn.textContent = "오늘";
+    btn.addEventListener("click", () => {
+      state.carAssignDate = todayISO();
+    });
+    container.appendChild(btn);
+    return;
+  }
+  
+  let activeBtn = null;
+  days.forEach((d) => {
+    if (!d.isoDate) {
+      return;
+    }
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "weekday-chip";
+    if (d.isoDate === current) {
+      btn.classList.add("active");
+      activeBtn = btn;
+    }
+    const weekdayShortMap = {
+      월: "월",
+      화: "화",
+      수: "수",
+      목: "목",
+      금: "금",
+      토: "토",
+      일: "일"
+    };
+    const dateLabel = formatVolunteerDateText(d.dateText || d.isoDate);
+    const weekdayRaw = String(d.weekday || "").trim();
+    const weekdayLabel = weekdayRaw ? weekdayShortMap[weekdayRaw] || weekdayRaw : "";
+    btn.innerHTML = `<span class="weekday-chip-date">${dateLabel}</span><span class="weekday-chip-weekday">${weekdayLabel}</span>`;
+    btn.dataset.isoDate = d.isoDate;
+    btn.addEventListener("click", () => {
+      if (state.carAssignDate === d.isoDate) {
+        return;
+      }
+      setCarAssignDate(d.isoDate);
+    });
+    container.appendChild(btn);
+  });
+
+  if (activeBtn) {
+    requestAnimationFrame(() => {
+      activeBtn.scrollIntoView({ behavior: "auto", inline: "start", block: "nearest" });
+    });
+  }
+};
+
+const renderCarAssignSlotRow = () => {
+  const container = elements.carAssignSlotList;
+  if (!container) {
+    return;
+  }
+  container.innerHTML = "";
+  const days = buildVolunteerDayList();
+  const currentDate = state.carAssignDate || todayISO();
+  const day = days.find((d) => d.isoDate === currentDate) || null;
+  const slots = [];
+  if (!day || day.slotAMEnabled !== false) {
+    slots.push("오전");
+  }
+  if (!day || day.slotPMEnabled !== false) {
+    slots.push("오후");
+  }
+  const availableSlots = slots.length ? slots : ["오전"];
+  if (availableSlots.indexOf(state.carAssignSlot) === -1) {
+    state.carAssignSlot = availableSlots[0];
+  }
+  availableSlots.forEach((slot) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "car-assign-slot-btn";
+    btn.classList.add(slot === "오후" ? "slot-pm" : "slot-am");
+    if (slot === state.carAssignSlot) {
+      btn.classList.add("active");
+    }
+    btn.textContent = slot;
+    btn.dataset.slot = slot;
+    btn.addEventListener("click", () => {
+      if (state.carAssignSlot === slot) {
+        return;
+      }
+      setCarAssignSlot(slot);
+    });
+    container.appendChild(btn);
+  });
+};
+
+const applyCarAssignDataForSlot = (date, slot, dayOverride) => {
+  const selectedSlot = slot === "오후" ? "오후" : "오전";
+  const day =
+    dayOverride || buildVolunteerDayList().find((d) => d.isoDate === date) || null;
+  const allRows =
+    state.carAssignAssignmentsDate === date
+      ? state.carAssignAssignmentsAll || []
+      : [];
+  const filteredRows = allRows.filter((row) => {
+    const rowSlot = String(row["시간대"] || "").trim() || "오전";
+    return rowSlot === selectedSlot;
+  });
+  state.data.assignments = sanitizeAssignmentRows(filteredRows);
+  const signupNames = day
+    ? (day.participantEntries || [])
+        .filter((entry) => String(entry.slot || "오전") === selectedSlot)
+        .map((entry) => normalizeAssignmentName(entry.name))
+    : [];
+  const assignmentNames =
+    (state.data.assignments || []).map((row) =>
+      normalizeAssignmentName(row["이름"])
+    ) || [];
+  const baseNames = []
+    .concat(signupNames)
+    .concat(assignmentNames)
+    .filter((name) => name);
+  state.participantsToday = Array.from(new Set(baseNames));
+  buildCarAssignmentsFromServer();
+  renderCarAssignDayRow();
+  renderCarAssignSlotRow();
+  renderCarAssignPopup();
+};
+
+const setCarAssignSlot = async (slotName) => {
+  const normalizedSlot = slotName === "오후" ? "오후" : "오전";
+  state.carAssignSlot = normalizedSlot;
+  const targetDate = state.carAssignDate || todayISO();
+  if (state.carAssignAssignmentsDate === targetDate) {
+    applyCarAssignDataForSlot(targetDate, normalizedSlot);
+    return;
+  }
+  await setCarAssignDate(targetDate);
+};
+
+const setCarAssignDate = async (isoDate) => {
+  const date = getNearestVolunteerDateISO(isoDate || todayISO());
+  state.carAssignDate = date;
+  setLoading(true, "차량 배정 정보를 불러오는 중...");
+  try {
+    await loadVolunteerConfig();
+    const days = buildVolunteerDayList();
+    const day =
+      days.find((d) => d.isoDate === date) || null;
+    const availableSlots = [];
+    if (!day || day.slotAMEnabled !== false) {
+      availableSlots.push("오전");
+    }
+    if (!day || day.slotPMEnabled !== false) {
+      availableSlots.push("오후");
+    }
+    if (!availableSlots.length) {
+      availableSlots.push("오전");
+    }
+    if (availableSlots.indexOf(state.carAssignSlot) === -1) {
+      state.carAssignSlot = availableSlots[0];
+    }
+    const selectedSlot = state.carAssignSlot || "오전";
+
+    if (!supabaseClient) {
+      throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+    }
+
+    const { data: assignments, error } = await supabaseClient
+      .from("car_assignments")
+      .select("*")
+      .eq("date", date);
+
+    if (error) throw error;
+
+    state.carAssignAssignmentsDate = date;
+    state.carAssignAssignmentsAll = (assignments || []).map(a => ({
+      "날짜": a.date,
+      "시간대": a.slot,
+      "차량": a.car_id,
+      "이름": a.driver,
+      "동승자": a.passengers || []
+    }));
+    
+    applyCarAssignDataForSlot(date, selectedSlot, day);
+  } catch (err) {
+    console.error("Failed to fetch car assignments:", err);
+    alert("차량 배정 정보를 불러오는 데 실패했습니다: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const renderCarAssignmentsPanel = () => {
+  const panel = elements.carAssignPanel;
+  if (!panel) {
+    return;
+  }
+  if (!state.user || state.user.role === "전도인") {
+    panel.innerHTML = "";
+    return;
+  }
+  panel.innerHTML = "";
+  const grid = document.createElement("div");
+  grid.className = "car-assign-grid";
+  const cars = state.carAssignments || [];
+  const allCards = state.data.cards || [];
+  cars.forEach((car) => {
+    const driverName = car.driver ? String(car.driver) : "";
+    const col = document.createElement("div");
+    col.className = "car-column";
+    col.dataset.carId = car.carId;
+    const header = document.createElement("div");
+    header.className = "car-column-header";
+    header.innerHTML = driverName
+      ? `차량 ${car.carId}<br />(${driverName})`
+      : `차량 ${car.carId}`;
+    header.addEventListener("dblclick", async () => {
+      let areaId = state.selectedArea || state.filterArea;
+      if (!areaId || areaId === "all") {
+        const input = window.prompt("배정할 구역번호를 입력해 주세요.");
+        if (!input) return;
+        areaId = input.trim();
+      }
+      const cardNumber = window.prompt("배정할 카드번호를 입력해 주세요.");
+      if (!cardNumber) return;
+      setLoading(true, "카드 수동 배정 중...");
+      const assignDate = state.carAssignDate || todayISO();
+      try {
+        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+        
+        const { error: updateError } = await supabaseClient
+          .from("cards")
+          .update({ car_id: String(car.carId || ""), assignment_date: assignDate })
+          .eq("area_id", String(areaId))
+          .eq("card_number", String(cardNumber));
+          
+        if (updateError) throw updateError;
+        
+        // 로컬 상태 즉시 업데이트
+        const localCard = state.data.cards.find(c => 
+          String(c["구역번호"]) === String(areaId) && String(c["카드번호"]) === String(cardNumber)
+        );
+        if (localCard) {
+          localCard["차량"] = String(car.carId || "");
+          localCard["배정날짜"] = assignDate;
+        }
+
+        renderAreas();
+        renderCards();
+        renderAdminPanel();
+        renderMyCarInfo();
+        setStatus(`카드 ${String(cardNumber)}가 차량 ${String(car.carId)}에 배정되었습니다.`);
+      } catch (err) {
+        console.error("Assign cards to cars error:", err);
+        alert("카드 배정에 실패했습니다: " + err.message);
+      } finally {
+        setLoading(false);
+      }
+    });
+    const membersBox = document.createElement("div");
+    membersBox.className = "car-members";
+    membersBox.dataset.carId = car.carId;
+    (car.members || []).forEach((name) => {
+      const item = document.createElement("div");
+      item.className = "car-member";
+      item.draggable = true;
+      item.dataset.name = name;
+      item.dataset.carId = car.carId;
+      item.textContent = name;
+      membersBox.appendChild(item);
+    });
+    const cardTagsBox = document.createElement("div");
+    cardTagsBox.className = "car-card-list";
+    const assignedCards = allCards.filter(
+      (card) =>
+        getCardAssignedCarIdForDate(
+          card,
+          state.carAssignDate || todayISO()
+        ) === String(car.carId || "")
+    );
+    if (assignedCards.length) {
+      const label = document.createElement("div");
+      label.className = "car-card-list-label";
+      label.textContent = "배정된 카드";
+      cardTagsBox.appendChild(label);
+      const tagsRow = document.createElement("div");
+      tagsRow.className = "car-card-list-tags";
+      assignedCards.forEach((card) => {
+        const span = document.createElement("span");
+        span.className = "car-card-tag";
+        const cardNumber = String(card["카드번호"] || "");
+        const townText = getCardTownLabel(card);
+        const tagLabel = townText ? `${cardNumber} (${townText})` : cardNumber;
+        const areaId = String(card["구역번호"] || "");
+        span.textContent = tagLabel;
+        span.dataset.cardNumber = cardNumber;
+        span.dataset.areaId = areaId;
+        span.dataset.carId = String(car.carId || "");
+
+        let cardPressTimer = null;
+        const clearCardPressTimer = () => {
+          if (cardPressTimer) {
+            clearTimeout(cardPressTimer);
+            cardPressTimer = null;
+          }
+        };
+        const startCardPressTimer = () => {
+          clearCardPressTimer();
+          cardPressTimer = setTimeout(() => {
+            cardPressTimer = null;
+            const area = span.dataset.areaId || "";
+            const num = span.dataset.cardNumber || "";
+            const fromCar = span.dataset.carId || "";
+            if (!area || !num || !fromCar) {
+              return;
+            }
+            const ok = window.confirm(
+              `차량 ${fromCar}에서 카드 ${num} 배정을 삭제할까요?`
+            );
+            if (!ok) {
+              return;
+            }
+            const cardsAll = state.data.cards || [];
+            const target = cardsAll.find(
+              (card) =>
+                String(card["구역번호"] || "") === String(area) &&
+                String(card["카드번호"] || "") === String(num)
+            );
+            if (target) {
+              target["차량"] = "";
+              target["배정날짜"] = "";
+            }
+            renderCards();
+            renderCarAssignPopup();
+          }, 800);
+        };
+
+        span.addEventListener("mousedown", (event) => {
+          if (event.button !== 0) {
+            return;
+          }
+          startCardPressTimer();
+        });
+        span.addEventListener("touchstart", () => {
+          startCardPressTimer();
+        });
+        ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach(
+          (type) => {
+            span.addEventListener(type, clearCardPressTimer);
+          }
+        );
+
+        tagsRow.appendChild(span);
+      });
+      cardTagsBox.appendChild(tagsRow);
+    }
+    let pressTimer = null;
+    const clearPressTimer = () => {
+      if (pressTimer) {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+      }
+    };
+    const startPressTimer = () => {
+      clearPressTimer();
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        const hasDriver = Boolean(car.driver);
+        const hasMembers = (car.members || []).some((name) => Boolean(name));
+        if (hasDriver || hasMembers) {
+          return;
+        }
+        if (
+          window.confirm(
+            `차량 ${car.carId}에 배정된 사람이 없습니다.\n이 차량을 삭제하시겠습니까?`
+          )
+        ) {
+          state.carAssignments = (state.carAssignments || []).filter(
+            (c) => String(c.carId) !== String(car.carId)
+          );
+          renderCarAssignmentsPanel();
+        }
+      }, 800);
+    };
+    col.addEventListener("mousedown", (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+      startPressTimer();
+    });
+    col.addEventListener("touchstart", () => {
+      startPressTimer();
+    });
+    ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((type) => {
+      col.addEventListener(type, clearPressTimer);
+    });
+    col.append(header, membersBox);
+    col.appendChild(cardTagsBox);
+    grid.appendChild(col);
+  });
+  panel.appendChild(grid);
+};
+
+const renderSelectedParticipants = () => {
+  const box = elements.carAssignSelected;
+  if (!box) {
+    return;
+  }
+  const names = state.participantsToday.slice();
+  box.innerHTML = "";
+  if (!names.length) {
+    return;
+  }
+  const assigned = new Set();
+  (state.carAssignments || []).forEach((car) => {
+    if (car.driver) {
+      assigned.add(normalizeAssignmentName(car.driver));
+    }
+    (car.members || []).forEach((name) => {
+      if (name) {
+        assigned.add(normalizeAssignmentName(name));
+      }
+    });
+  });
+  const unassigned = names.filter(
+    (name) => !assigned.has(normalizeAssignmentName(name))
+  );
+  const frag = document.createDocumentFragment();
+  if (!unassigned.length) {
+    box.appendChild(frag);
+    return;
+  }
+  unassigned.forEach((name) => {
+    const item = document.createElement("div");
+    item.className = "selected-person";
+    item.textContent = name;
+    frag.appendChild(item);
+  });
+  box.appendChild(frag);
+};
+
+const renderCarAssignPopup = () => {
+  if (!elements.carAssignOverlay || !state.user) {
+    return;
+  }
+  const userRole = String(state.user.role || "").trim();
+  const isLeader = userRole === "관리자" || userRole === "인도자";
+  if (!isLeader) {
+    elements.carAssignOverlay.classList.add("hidden");
+    return;
+  }
+  const listEl = elements.carAssignEvangelistList;
+  if (listEl) {
+    const list = (state.data.evangelists || [])
+      .slice()
+      .sort((a, b) =>
+        String(a["이름"] || "").localeCompare(
+          String(b["이름"] || ""),
+          "ko-KR"
+        )
+      );
+    const itemsHtml = list
+      .map((row) => {
+        const name = row["이름"] || "";
+        const isParticipant = state.participantsToday.includes(
+          normalizeAssignmentName(name)
+        );
+        return `<div class="ev-item${
+          isParticipant ? " selected" : ""
+        }" data-name="${name}">${name}</div>`;
+      })
+      .join("");
+    const tempHtml =
+      '<div class="ev-item ev-temp-add" data-role="temp-add">+ 추가</div>';
+    listEl.innerHTML = itemsHtml + tempHtml;
+  }
+  const meta = elements.carAssignMeta;
+  renderCarAssignDayRow();
+  renderCarAssignSlotRow();
+  if (meta) {
+    const rows = state.data.assignments || [];
+    if (rows.length) {
+      const date =
+        rows[0]["날짜"] ||
+        rows[0]["date"] ||
+        rows[0]["Date"] ||
+        "";
+      const dateText = formatAssignmentDate(date);
+      const slot = String(rows[0]["시간대"] || "").trim();
+      const slotText = slot ? ` (${slot})` : "";
+      meta.textContent = dateText
+        ? `배정된 날짜: ${dateText}${slotText}`
+        : "오늘 차량 배정이 저장되어 있습니다.";
+    } else {
+      meta.textContent = "아직 저장된 차량 배정이 없습니다. 배정 후 저장해 주세요.";
+    }
+  }
+  renderSelectedParticipants();
+  renderCarAssignmentsPanel();
+};
+
 const loadApiUrl = () => {
-  state.apiUrl = DEFAULT_API_URL;
+  let url = DEFAULT_API_URL;
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const stored = window.localStorage.getItem("mc_api_url");
+      if (stored) {
+        url = stored;
+      }
+    }
+  } catch (e) {}
+  state.apiUrl = url;
   if (elements.apiUrlInput) {
-    elements.apiUrlInput.value = DEFAULT_API_URL;
+    elements.apiUrlInput.value = url;
   }
   elements.configPanel.classList.add("hidden");
 };
 
 const saveApiUrl = () => {
-  state.apiUrl = DEFAULT_API_URL;
+  let url = DEFAULT_API_URL;
+  if (elements.apiUrlInput) {
+    const value = elements.apiUrlInput.value.trim();
+    if (value) {
+      url = value;
+    }
+  }
+  state.apiUrl = url;
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem("mc_api_url", url);
+    }
+  } catch (e) {}
   elements.configPanel.classList.add("hidden");
 };
 
-const apiRequest = async (action, payload = {}, method = "POST") => {
-  if (!state.apiUrl) {
-    elements.configPanel.classList.remove("hidden");
-    throw new Error("API URL이 설정되지 않았습니다.");
-  }
+const refreshAll = async () => {
+  setLoading(true, "데이터 새로고침 중...");
   try {
-    if (method === "GET") {
-      const url = new URL(state.apiUrl);
-      url.searchParams.set("action", action);
-      const res = await fetch(url.toString(), { method: "GET" });
-      return res.json();
+    await loadData();
+    renderAreas();
+    renderCards();
+    renderAdminPanel();
+    renderMyCarInfo();
+    renderVolunteerOverlay();
+    if (state.currentMenu === "visits" && state.completionExpandedAreaId) {
+      renderVisitsView();
     }
-    const body = new URLSearchParams({ action, ...payload }).toString();
-    const res = await fetch(state.apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-      body
-    });
-    return res.json();
-  } catch (error) {
-    alert("서버에 연결할 수 없습니다. 나중에 다시 시도해 주세요.");
-    throw error;
+    if (state.currentMenu === "car-assign") {
+      await setCarAssignDate(state.carAssignDate || todayISO());
+    }
+  } finally {
+    setLoading(false);
   }
+};
+
+const buildVolunteerDayList = () => {
+  const weeks = state.volunteerWeeks || [];
+  const days = [];
+  weeks.forEach((week) => {
+    const weekStartText = week.weekStartText || "";
+    const weekStartISO = week.weekStartISO || "";
+    (week.days || []).forEach((day) => {
+      days.push({
+        weekStartText,
+        weekStartISO,
+        dateText: day.dateText || "",
+        isoDate: day.isoDate || "",
+        weekday: day.weekday || "",
+        participants: day.participants || [],
+        participantEntries: day.participantEntries || [],
+        slotAMEnabled: day.slotAMEnabled,
+        slotPMEnabled: day.slotPMEnabled,
+        fixedMemo: day.fixedMemo || "",
+        extraMemo: day.extraMemo || "",
+        fixedMemoAM: day.fixedMemoAM || "",
+        fixedMemoPM: day.fixedMemoPM || "",
+        extraMemoAM: day.extraMemoAM || "",
+        extraMemoPM: day.extraMemoPM || ""
+      });
+    });
+  });
+  days.sort((a, b) => {
+    const da = a.isoDate || "";
+    const db = b.isoDate || "";
+    return da.localeCompare(db);
+  });
+  return days;
+};
+
+const getNearestVolunteerDateISO = (baseDate) => {
+  const days = buildVolunteerDayList().filter((d) => Boolean(d.isoDate));
+  if (!days.length) {
+    return baseDate || todayISO();
+  }
+  const requested = String(baseDate || "").trim();
+  if (requested) {
+    const exact = days.find((d) => d.isoDate === requested);
+    if (exact) {
+      return exact.isoDate;
+    }
+  }
+  const base = parseVisitDate(requested || todayISO()) || new Date();
+  const baseTime = new Date(
+    base.getFullYear(),
+    base.getMonth(),
+    base.getDate()
+  ).getTime();
+  const sorted = days
+    .slice()
+    .sort((a, b) => {
+      const da = parseVisitDate(a.isoDate);
+      const db = parseVisitDate(b.isoDate);
+      const ta = da
+        ? new Date(da.getFullYear(), da.getMonth(), da.getDate()).getTime()
+        : baseTime;
+      const tb = db
+        ? new Date(db.getFullYear(), db.getMonth(), db.getDate()).getTime()
+        : baseTime;
+      const diffA = Math.abs(ta - baseTime);
+      const diffB = Math.abs(tb - baseTime);
+      if (diffA !== diffB) {
+        return diffA - diffB;
+      }
+      return String(a.isoDate || "").localeCompare(String(b.isoDate || ""));
+    });
+  return sorted[0].isoDate || todayISO();
+};
+
+const ensureVolunteerSelection = () => {
+  const weeks = state.volunteerWeeks || [];
+  if (!weeks.length) {
+    state.selectedVolunteerWeekStart = "";
+    state.selectedVolunteerDate = "";
+    state.selectedVolunteerSlot = "오전";
+    return;
+  }
+  const allDays = buildVolunteerDayList();
+  if (!allDays.length) {
+    state.selectedVolunteerWeekStart = "";
+    state.selectedVolunteerDate = "";
+    state.selectedVolunteerSlot = "오전";
+    return;
+  }
+  const today = todayISO();
+  const futureDays = allDays.filter(
+    (d) => d.isoDate && d.isoDate >= today
+  );
+  const days = futureDays.length ? futureDays : allDays;
+  if (state.selectedVolunteerDate) {
+    const found = days.find(
+      (d) => d.isoDate === state.selectedVolunteerDate
+    );
+    if (found) {
+      state.selectedVolunteerWeekStart = found.weekStartText || "";
+      return;
+    }
+  }
+  const todayDay = days.find((d) => d.isoDate === today);
+  const target = todayDay || days[0];
+  state.selectedVolunteerDate = target.isoDate || "";
+  state.selectedVolunteerWeekStart = target.weekStartText || "";
+  if (!state.selectedVolunteerSlot) {
+    state.selectedVolunteerSlot = "오전";
+  }
+};
+
+const renderVolunteerOverlay = () => {
+  const overlay = elements.volunteerOverlay;
+  const body = elements.volunteerBody;
+  if (!overlay || !body || !state.user) {
+    return;
+  }
+  const prevDayRow = body.querySelector(".weekday-scroll");
+  if (prevDayRow) {
+    state.volunteerDayRowScrollLeft = prevDayRow.scrollLeft || 0;
+  }
+  const weeks = state.volunteerWeeks || [];
+  body.innerHTML = "";
+  const userRole = String(state.user.role || "").trim();
+  const isAdmin = userRole === "관리자";
+  const isLeader = userRole === "인도자";
+  const canManageVolunteerSignups = isAdmin || isLeader;
+
+  const allDays = buildVolunteerDayList();
+  ensureVolunteerSelection();
+
+  if (!weeks.length && !isAdmin) {
+    const msg = document.createElement("div");
+    msg.className = "volunteer-empty-msg";
+    msg.textContent = "등록된 봉사 주간이 없습니다.";
+    body.appendChild(msg);
+    return;
+  }
+
+  const today = todayISO();
+  const selectableDays = allDays.filter((d) => d.isoDate && d.isoDate >= today);
+  const days = selectableDays.length ? selectableDays : allDays;
+  
+  let selectedDay = allDays.find((d) => d.isoDate === state.selectedVolunteerDate) || null;
+  if (!selectedDay && allDays.length) {
+    selectedDay = allDays[0];
+    state.selectedVolunteerDate = selectedDay.isoDate || "";
+    state.selectedVolunteerWeekStart = selectedDay.weekStartText || "";
+  }
+
+  const getAvailableVolunteerSlots = (day) => {
+    if (!day) return ["오전"];
+    const slots = [];
+    if (day.slotAMEnabled !== false) slots.push("오전");
+    if (day.slotPMEnabled !== false) slots.push("오후");
+    return slots.length ? slots : ["오전"];
+  };
+
+  const availableSlots = getAvailableVolunteerSlots(selectedDay);
+  if (availableSlots.indexOf(state.selectedVolunteerSlot) === -1) {
+    state.selectedVolunteerSlot = availableSlots[0];
+  }
+
+  const selectedWeek = (selectedDay && weeks.length)
+    ? weeks.find(w => String(w.weekStartText || "") === String(selectedDay.weekStartText || "")) || null
+    : null;
+
+  const layout = document.createElement("div");
+  layout.className = "volunteer-layout";
+  
+  const mainBox = document.createElement("div");
+  mainBox.className = "volunteer-main";
+  layout.appendChild(mainBox);
+
+  if (weeks.length === 0) {
+    const emptyMsg = document.createElement("div");
+    emptyMsg.className = "volunteer-empty-msg";
+    emptyMsg.textContent = "등록된 봉사 주간이 없습니다. 하단 관리자 메뉴에서 주간을 등록해 주세요.";
+    mainBox.appendChild(emptyMsg);
+  } else if (allDays.length === 0) {
+    const emptyMsg = document.createElement("div");
+    emptyMsg.className = "volunteer-empty-msg";
+    emptyMsg.textContent = "등록된 봉사 날짜가 없습니다.";
+    mainBox.appendChild(emptyMsg);
+  } else {
+    // Standard rendering logic
+    const header = document.createElement("div");
+    header.className = "volunteer-week-header";
+    const range = document.createElement("div");
+    range.className = "volunteer-week-range";
+    range.textContent = "";
+    header.appendChild(range);
+    mainBox.appendChild(header);
+
+    const grid = document.createElement("div");
+    grid.className = "volunteer-main-grid";
+    const dayCard = document.createElement("div");
+    dayCard.className = "volunteer-card volunteer-card-days";
+    
+    const bindLongPress = (element, onLongPress) => {
+      let timer = null;
+      let longPressed = false;
+      const start = (event) => {
+        if (event) event.stopPropagation();
+        longPressed = false;
+        timer = setTimeout(async () => {
+          longPressed = true;
+          timer = null;
+          await onLongPress();
+        }, 700);
+      };
+      const cancel = () => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+      };
+      element.addEventListener("mousedown", (event) => {
+        if (event.button !== 0) return;
+        start(event);
+      });
+      element.addEventListener("touchstart", start);
+      ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((type) => {
+        element.addEventListener(type, cancel);
+      });
+      element.addEventListener("click", (event) => {
+        if (!longPressed) return;
+        event.preventDefault();
+        event.stopPropagation();
+        longPressed = false;
+      });
+    };
+
+    const weekdayFullMap = {
+      월: "월요일", 화: "화요일", 수: "수요일", 목: "목요일",
+      금: "금요일", 토: "토요일", 일: "일요일"
+    };
+
+    const todayDate = new Date();
+    const todayYear = todayDate.getFullYear();
+    const todayMonth = todayDate.getMonth() + 1;
+    const todayDay = todayDate.getDate();
+    const todayWeekday = weekdayFullMap[["일", "월", "화", "수", "목", "금", "토"][todayDate.getDay()]] || "";
+
+    const todayLabel = document.createElement("div");
+    todayLabel.className = "volunteer-today-label";
+    todayLabel.innerHTML = `<div class="volunteer-today-text">오늘은</div><div class="volunteer-today-date">${todayYear}년 ${todayMonth}월 ${todayDay}일 ${todayWeekday}</div>`;
+    mainBox.appendChild(todayLabel);
+
+    const dayRow = document.createElement("div");
+    dayRow.className = "weekday-scroll";
+    
+    if (days.length) {
+      days.forEach((d) => {
+        if (!d.isoDate) return;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "weekday-chip";
+        if (d.isoDate === state.selectedVolunteerDate) {
+          btn.classList.add("active");
+        }
+        const dateLabel = formatVolunteerDateText(d.dateText || d.isoDate);
+        const weekdayRaw = String(d.weekday || "").trim();
+        const weekdayLabel = weekdayRaw ? (weekdayFullMap[weekdayRaw] || `${weekdayRaw}요일`).replace("요일", "") : "";
+        btn.innerHTML = `<span class="weekday-chip-date">${dateLabel}</span><span class="weekday-chip-weekday">${weekdayLabel}</span>`;
+        btn.dataset.isoDate = d.isoDate;
+        btn.addEventListener("click", () => {
+          state.selectedVolunteerDate = d.isoDate || "";
+          state.selectedVolunteerWeekStart = d.weekStartText || "";
+          const slots = getAvailableVolunteerSlots(d);
+          if (slots.indexOf(state.selectedVolunteerSlot) === -1) {
+            state.selectedVolunteerSlot = slots[0] || "오전";
+          }
+          renderVolunteerOverlay();
+        });
+        if (isAdmin) {
+          bindLongPress(btn, async () => {
+            const ok = window.confirm(`${dateLabel} ${weekdayLabel}의 오전/오후 신청 전체를 삭제할까요?`);
+            if (!ok) return;
+            setLoading(true, "날짜를 삭제하는 중...");
+            try {
+              const weekStart = d.weekStartText || d.weekStartISO;
+              const { data: weekRow, error: fetchError } = await supabaseClient
+                .from("volunteer_weeks")
+                .select("data")
+                .eq("week_start", weekStart)
+                .single();
+                
+              if (fetchError) throw fetchError;
+              
+              const updatedData = { ...weekRow.data };
+              updatedData.days = (updatedData.days || []).filter(day => day.isoDate !== d.isoDate);
+              
+              const saveRes = await saveVolunteerWeekToSupabase(weekStart, updatedData);
+              if (!saveRes.success) throw new Error(saveRes.message);
+              
+              await loadVolunteerConfig();
+              ensureVolunteerSelection();
+              renderVolunteerOverlay();
+            } catch (err) {
+              console.error("Remove volunteer day error:", err);
+              alert("날짜 삭제에 실패했습니다: " + err.message);
+            } finally {
+              setLoading(false);
+            }
+          });
+        }
+        dayRow.appendChild(btn);
+      });
+    } else {
+      const weekdayNames = ["월", "화", "수", "목", "금", "토", "일"];
+      weekdayNames.forEach((name) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "weekday-chip";
+        btn.textContent = name;
+        dayRow.appendChild(btn);
+      });
+    }
+    dayCard.appendChild(dayRow);
+    dayRow.addEventListener(
+      "scroll",
+      () => {
+        state.volunteerDayRowScrollLeft = dayRow.scrollLeft || 0;
+      },
+      { passive: true }
+    );
+    const savedVolunteerDayRowScrollLeft = Number(state.volunteerDayRowScrollLeft) || 0;
+    requestAnimationFrame(() => {
+      dayRow.scrollLeft = savedVolunteerDayRowScrollLeft;
+    });
+    grid.appendChild(dayCard);
+
+    const selectedCard = document.createElement("div");
+    selectedCard.className = "volunteer-card volunteer-card-selected";
+    
+    if (selectedDay) {
+      const dateText = formatVolunteerDateText(selectedDay.dateText || selectedDay.isoDate);
+      const weekdayRaw = String(selectedDay.weekday || "").trim();
+      const weekdayLabel = weekdayRaw ? (weekdayFullMap[weekdayRaw] || `${weekdayRaw}요일`) : "";
+      
+      const daySlots = getAvailableVolunteerSlots(selectedDay);
+      daySlots.forEach((slotName) => {
+        const fixedMemoText = String(
+          slotName === "오후" ? selectedDay.fixedMemoPM || selectedDay.fixedMemo || "" : selectedDay.fixedMemoAM || selectedDay.fixedMemo || ""
+        ).trim();
+        const extraMemoText = String(
+          slotName === "오후" ? selectedDay.extraMemoPM || selectedDay.extraMemo || "" : selectedDay.extraMemoAM || selectedDay.extraMemo || ""
+        ).trim();
+        const memoParts = [];
+        if (fixedMemoText) memoParts.push(fixedMemoText);
+        if (extraMemoText) memoParts.push(extraMemoText);
+        const memoText = memoParts.join("\n");
+        const section = document.createElement("div");
+        section.className = "volunteer-slot-section";
+        const slotHeader = document.createElement("div");
+        slotHeader.className = "volunteer-slot-header";
+        slotHeader.textContent = `${dateText} ${weekdayLabel} ${slotName}`;
+        section.appendChild(slotHeader);
+        if (memoText) {
+          const slotMemo = document.createElement("div");
+          slotMemo.className = "volunteer-slot-memo";
+          slotMemo.textContent = memoText;
+          section.appendChild(slotMemo);
+        }
+        const memoDivider = document.createElement("div");
+        memoDivider.className = "volunteer-slot-memo-divider";
+        section.appendChild(memoDivider);
+        const list = document.createElement("div");
+        list.className = "volunteer-participant-list";
+        const entries = (selectedDay.participantEntries || []).filter(e => (e.slot || "오전") === slotName);
+        if (entries.length) {
+          entries.forEach((entry) => {
+            const entryName = String(entry.name || "");
+            const chip = document.createElement("div");
+            chip.className = "volunteer-participant";
+            chip.textContent = entryName;
+            if (canManageVolunteerSignups) {
+              bindLongPress(chip, async () => {
+                const ok = window.confirm(`${entryName} (${slotName}) 신청자를 삭제할까요?`);
+                if (!ok) return;
+                setLoading(true, "신청자를 삭제하는 중...");
+                try {
+                  const weekStart = selectedDay.weekStartText || selectedDay.weekStartISO;
+                  const { data: weekRow, error: fetchError } = await supabaseClient
+                    .from("volunteer_weeks")
+                    .select("data")
+                    .eq("week_start", weekStart)
+                    .single();
+                    
+                  if (fetchError) throw fetchError;
+                  
+                  const updatedData = { ...weekRow.data };
+                  const dayObj = (updatedData.days || []).find(d => d.isoDate === selectedDay.isoDate);
+                  if (dayObj && dayObj.participantEntries) {
+                    dayObj.participantEntries = dayObj.participantEntries.filter(e => !(String(e.name || "") === String(entryName) && (e.slot || "오전") === slotName));
+                  }
+                  
+                  const saveRes = await saveVolunteerWeekToSupabase(weekStart, updatedData);
+                  if (!saveRes.success) throw new Error(saveRes.message);
+                  
+                  await loadVolunteerConfig();
+                  ensureVolunteerSelection();
+                  renderVolunteerOverlay();
+                } catch (err) {
+                  console.error("Remove volunteer by admin error:", err);
+                  alert("신청자 삭제에 실패했습니다: " + err.message);
+                } finally {
+                  setLoading(false);
+                }
+              });
+            }
+            list.appendChild(chip);
+          });
+        } else {
+          const none = document.createElement("div");
+          none.className = "volunteer-none";
+          none.textContent = "아직 신청한 사람이 없습니다.";
+          list.appendChild(none);
+        }
+        section.appendChild(list);
+        if (state.user) {
+          const isoDate = selectedDay.isoDate || "";
+          if (isoDate && isoDate >= today) {
+            const currentName = state.user.name;
+            const already = entries.some(e => String(e.name || "") === String(currentName));
+            const actionBtn = document.createElement("button");
+            actionBtn.type = "button";
+            actionBtn.className = "volunteer-slot-action-btn";
+            if (already) actionBtn.classList.add("cancel");
+            actionBtn.textContent = already ? "취소하기" : "신청하기";
+            actionBtn.addEventListener("click", async () => {
+              const applying = !already;
+              setLoading(true, applying ? "봉사 신청 중..." : "봉사 신청 취소 중...");
+              try {
+                const weekStart = selectedDay.weekStartText || selectedDay.weekStartISO;
+                const { data: weekRow, error: fetchError } = await supabaseClient
+                  .from("volunteer_weeks")
+                  .select("data")
+                  .eq("week_start", weekStart)
+                  .single();
+                  
+                if (fetchError) throw fetchError;
+                
+                const updatedData = { ...weekRow.data };
+                const dayObj = updatedData.days.find(d => d.isoDate === selectedDay.isoDate);
+                if (!dayObj) throw new Error("날짜 정보를 찾을 수 없습니다.");
+                
+                if (!dayObj.participantEntries) dayObj.participantEntries = [];
+                
+                if (applying) {
+                  const exists = dayObj.participantEntries.some(e => String(e.name || "") === String(state.user.name) && (e.slot || "오전") === slotName);
+                  if (!exists) dayObj.participantEntries.push({ name: state.user.name, slot: slotName });
+                } else {
+                  dayObj.participantEntries = dayObj.participantEntries.filter(e => !(String(e.name || "") === String(state.user.name) && (e.slot || "오전") === slotName));
+                }
+                
+                const saveRes = await saveVolunteerWeekToSupabase(weekStart, updatedData);
+                if (!saveRes.success) throw new Error(saveRes.message);
+                
+                await loadVolunteerConfig();
+                renderVolunteerOverlay();
+                setStatus(applying ? "봉사 신청이 등록되었습니다." : "봉사 신청이 취소되었습니다.");
+              } catch (err) {
+                console.error("Volunteer apply/cancel error:", err);
+                alert("작업에 실패했습니다: " + err.message);
+              } finally {
+                setLoading(false);
+              }
+            });
+            section.appendChild(actionBtn);
+          }
+        }
+        if (canManageVolunteerSignups) {
+          const addBtn = document.createElement("button");
+          addBtn.type = "button";
+          addBtn.className = "volunteer-admin-add-btn";
+          addBtn.textContent = "+ 신청자 추가/취소";
+          addBtn.addEventListener("click", async () => {
+            const evangelists = (state.data.evangelists || []).map((row) => String(row["이름"] || "").trim()).filter((name) => !!name);
+            const uniqueEvangelists = Array.from(new Set(evangelists));
+            const initialSelectedNames = new Set(
+              entries.map((entry) => String(entry.name || "").trim()).filter((name) => !!name)
+            );
+            const allSelectableNames = Array.from(
+              new Set(uniqueEvangelists.concat(Array.from(initialSelectedNames)))
+            ).filter((name) => !!name);
+            const workingSelectedNames = new Set(initialSelectedNames);
+            const existingPicker = section.querySelector(".volunteer-admin-add-picker");
+            if (existingPicker) {
+              existingPicker.remove();
+              return;
+            }
+            const picker = document.createElement("div");
+            picker.className = "volunteer-admin-add-picker";
+            const title = document.createElement("div");
+            title.className = "volunteer-admin-add-picker-title";
+            title.textContent = `${slotName} 신청자 선택 (선택=신청됨, 해제=취소)`;
+            picker.appendChild(title);
+            const customRow = document.createElement("div");
+            customRow.className = "volunteer-admin-add-custom-row";
+            const customInput = document.createElement("input");
+            customInput.type = "text";
+            customInput.className = "volunteer-admin-add-custom-input";
+            customInput.placeholder = "이름 입력";
+            const customAddBtn = document.createElement("button");
+            customAddBtn.type = "button";
+            customAddBtn.className = "volunteer-admin-add-custom-btn";
+            customAddBtn.textContent = "+추가";
+            customRow.appendChild(customInput);
+            customRow.appendChild(customAddBtn);
+            picker.appendChild(customRow);
+            const listWrap = document.createElement("div");
+            listWrap.className = "volunteer-admin-add-list";
+            const renderNameButtons = () => {
+              listWrap.innerHTML = "";
+              const orderedNames = allSelectableNames
+                .slice()
+                .sort((a, b) => a.localeCompare(b, "ko-KR"));
+              orderedNames.forEach((name) => {
+              const nameBtn = document.createElement("button");
+              nameBtn.type = "button";
+              nameBtn.className = "volunteer-admin-add-name";
+              nameBtn.classList.add(slotName === "오후" ? "slot-pm" : "slot-am");
+              if (workingSelectedNames.has(name)) {
+                nameBtn.classList.add("selected");
+              }
+              nameBtn.textContent = name;
+              nameBtn.addEventListener("click", () => {
+                if (workingSelectedNames.has(name)) {
+                  workingSelectedNames.delete(name);
+                  nameBtn.classList.remove("selected");
+                } else {
+                  workingSelectedNames.add(name);
+                  nameBtn.classList.add("selected");
+                }
+              });
+              listWrap.appendChild(nameBtn);
+              });
+            };
+            renderNameButtons();
+            const addCustomName = () => {
+              const customName = String(customInput.value || "").trim();
+              if (!customName) {
+                return;
+              }
+              if (!allSelectableNames.includes(customName)) {
+                allSelectableNames.push(customName);
+              }
+              workingSelectedNames.add(customName);
+              customInput.value = "";
+              renderNameButtons();
+            };
+            customAddBtn.addEventListener("click", addCustomName);
+            customInput.addEventListener("keydown", (event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                addCustomName();
+              }
+            });
+            picker.appendChild(listWrap);
+            const saveBtn = document.createElement("button");
+            saveBtn.type = "button";
+            saveBtn.className = "volunteer-admin-add-save";
+            saveBtn.textContent = "저장";
+            saveBtn.addEventListener("click", async () => {
+              const namesToAdd = [];
+              const namesToRemove = [];
+              allSelectableNames.forEach((name) => {
+                const before = initialSelectedNames.has(name);
+                const after = workingSelectedNames.has(name);
+                if (!before && after) {
+                  namesToAdd.push(name);
+                } else if (before && !after) {
+                  namesToRemove.push(name);
+                }
+              });
+              if (!namesToAdd.length && !namesToRemove.length) {
+                picker.remove();
+                return;
+              }
+              setLoading(true, "신청자 변경사항을 저장하는 중...");
+              try {
+                const weekStart = selectedDay.weekStartText || selectedDay.weekStartISO;
+                const { data: weekRow, error: fetchError } = await supabaseClient
+                  .from("volunteer_weeks")
+                  .select("data")
+                  .eq("week_start", weekStart)
+                  .single();
+                  
+                if (fetchError) throw fetchError;
+                
+                const updatedData = { ...weekRow.data };
+                const dayObj = (updatedData.days || []).find(d => d.isoDate === selectedDay.isoDate);
+                if (dayObj) {
+                  if (!dayObj.participantEntries) dayObj.participantEntries = [];
+                  
+                  // Remove
+                  namesToRemove.forEach(name => {
+                    dayObj.participantEntries = dayObj.participantEntries.filter(e => !(String(e.name || "") === String(name) && (e.slot || "오전") === slotName));
+                  });
+                  
+                  // Add
+                  namesToAdd.forEach(name => {
+                    const exists = dayObj.participantEntries.some(e => String(e.name || "") === String(name) && (e.slot || "오전") === slotName);
+                    if (!exists) dayObj.participantEntries.push({ name, slot: slotName });
+                  });
+                }
+                
+                const saveRes = await saveVolunteerWeekToSupabase(weekStart, updatedData);
+                if (!saveRes.success) throw new Error(saveRes.message);
+                
+                await loadVolunteerConfig();
+                ensureVolunteerSelection();
+                renderVolunteerOverlay();
+                setStatus("신청자 변경사항이 저장되었습니다.");
+              } catch (err) {
+                console.error("Save volunteer by admin error:", err);
+                alert("변경사항 저장에 실패했습니다: " + err.message);
+              } finally {
+                setLoading(false);
+              }
+            });
+            const closeBtn = document.createElement("button");
+            closeBtn.type = "button";
+            closeBtn.className = "volunteer-admin-add-close";
+            closeBtn.textContent = "닫기";
+            closeBtn.addEventListener("click", () => {
+              picker.remove();
+            });
+            const actionRow = document.createElement("div");
+            actionRow.className = "volunteer-admin-add-actions";
+            actionRow.appendChild(saveBtn);
+            actionRow.appendChild(closeBtn);
+            picker.appendChild(actionRow);
+            section.appendChild(picker);
+          });
+          section.appendChild(addBtn);
+        }
+        selectedCard.appendChild(section);
+      });
+    } else {
+      const none = document.createElement("div");
+      none.className = "volunteer-selected-date";
+      none.textContent = "날짜를 선택해 주세요";
+      selectedCard.appendChild(none);
+    }
+    grid.appendChild(selectedCard);
+    mainBox.appendChild(grid);
+  }
+
+  if (isAdmin) {
+    const adminBox = document.createElement("div");
+    adminBox.className = "volunteer-admin";
+    const title = document.createElement("div");
+    title.textContent = "관리자 메뉴";
+    adminBox.appendChild(title);
+    const weekRow = document.createElement("div");
+    weekRow.className = "volunteer-admin-row";
+    const weekLabel = document.createElement("span");
+    weekLabel.className = "volunteer-admin-label";
+    weekLabel.textContent = "주 선택";
+    weekRow.appendChild(weekLabel);
+    const weekSelect = document.createElement("select");
+    const sortedWeeks = (weeks || []).slice().sort((a, b) => {
+      const aISO = a.weekStartISO || "";
+      const bISO = b.weekStartISO || "";
+      return aISO.localeCompare(bISO);
+    });
+    sortedWeeks.forEach((w) => {
+      const opt = document.createElement("option");
+      const ds = w.days || [];
+      let label = "";
+      if (ds.length) {
+        const first = ds[0];
+        const last = ds[ds.length - 1];
+        label =
+          `${formatVolunteerDateText(first.dateText || first.isoDate)} ~ ` +
+          `${formatVolunteerDateText(last.dateText || last.isoDate)}`;
+      } else {
+        label = formatVolunteerDateText(
+          w.weekStartText || w.weekStartISO || ""
+        );
+      }
+      opt.value = w.weekStartText || "";
+      opt.textContent = label;
+      if (
+        String(w.weekStartText || "") ===
+        String(state.selectedVolunteerWeekStart || "")
+      ) {
+        opt.selected = true;
+      }
+      weekSelect.appendChild(opt);
+    });
+    weekSelect.addEventListener("change", () => {
+      const value = weekSelect.value;
+      state.selectedVolunteerWeekStart = value;
+      const target =
+        days.find((d) => String(d.weekStartText || "") === String(value)) ||
+        null;
+      if (target) {
+        state.selectedVolunteerDate = target.isoDate || "";
+      }
+      renderVolunteerOverlay();
+    });
+    weekRow.appendChild(weekSelect);
+    adminBox.appendChild(weekRow);
+    const row1 = document.createElement("div");
+    row1.className = "volunteer-admin-row";
+    const dateLabel = document.createElement("span");
+    dateLabel.className = "volunteer-admin-label";
+    dateLabel.textContent = "주 시작";
+    row1.appendChild(dateLabel);
+    const dateInput = document.createElement("input");
+    dateInput.type = "date";
+   dateInput.id = "volunteer-week-start";
+   dateInput.name = "volunteer-week-start";
+    let baseISO =
+      (selectedWeek && selectedWeek.weekStartISO) ||
+      (selectedDay && selectedDay.isoDate) ||
+      todayISO();
+    try {
+      const d = new Date(baseISO);
+      if (!Number.isNaN(d.getTime())) {
+        const day = (d.getDay() + 6) % 7;
+        d.setDate(d.getDate() - day);
+        baseISO = d.toISOString().slice(0, 10);
+      }
+    } catch (e) {}
+    dateInput.value = baseISO;
+    row1.appendChild(dateInput);
+    adminBox.appendChild(row1);
+    const row2 = document.createElement("div");
+    row2.className = "volunteer-admin-row";
+    const dayButtonsContainer = document.createElement("div");
+    dayButtonsContainer.className = "volunteer-day-grid-admin";
+    const weekdayNames = ["월", "화", "수", "목", "금", "토", "일"];
+    
+    // slotsConfig holds { [dayIndex]: { am: boolean, pm: boolean } }
+    const slotsConfig = {};
+    for (let i = 1; i <= 7; i++) {
+      slotsConfig[i] = { am: false, pm: false };
+    }
+
+    const weekByISO =
+      weeks.find((w) => String(w.weekStartISO || "") === String(baseISO)) ||
+      null;
+    if (weekByISO && (weekByISO.days || []).length) {
+      try {
+        const baseDate = new Date(baseISO);
+        const ms = 24 * 60 * 60 * 1000;
+        weekByISO.days.forEach((d) => {
+          const dd = new Date(d.isoDate);
+          if (Number.isNaN(dd.getTime())) {
+            return;
+          }
+          const diff = Math.round((dd.getTime() - baseDate.getTime()) / ms);
+          const idx = diff + 1;
+          if (idx >= 1 && idx <= 7) {
+            slotsConfig[idx] = {
+              am: d.slotAMEnabled !== false,
+              pm: d.slotPMEnabled === true
+            };
+          }
+        });
+      } catch (e) {}
+    }
+
+    for (let i = 1; i <= 7; i++) {
+      const col = document.createElement("div");
+      col.className = "volunteer-admin-day-col";
+      
+      const label = document.createElement("div");
+      label.className = "volunteer-admin-day-label";
+      label.textContent = weekdayNames[i - 1];
+      col.appendChild(label);
+
+      const amBtn = document.createElement("button");
+      amBtn.type = "button";
+      amBtn.className = "volunteer-slot-toggle-btn";
+      amBtn.classList.add("slot-am");
+      amBtn.textContent = "오전";
+      if (slotsConfig[i].am) amBtn.classList.add("active");
+      amBtn.addEventListener("click", () => {
+        slotsConfig[i].am = !slotsConfig[i].am;
+        amBtn.classList.toggle("active");
+      });
+      col.appendChild(amBtn);
+
+      const pmBtn = document.createElement("button");
+      pmBtn.type = "button";
+      pmBtn.className = "volunteer-slot-toggle-btn";
+      pmBtn.classList.add("slot-pm");
+      pmBtn.textContent = "오후";
+      if (slotsConfig[i].pm) pmBtn.classList.add("active");
+      pmBtn.addEventListener("click", () => {
+        slotsConfig[i].pm = !slotsConfig[i].pm;
+        pmBtn.classList.toggle("active");
+      });
+      col.appendChild(pmBtn);
+
+      dayButtonsContainer.appendChild(col);
+    }
+    row2.appendChild(dayButtonsContainer);
+    adminBox.appendChild(row2);
+
+    const row3 = document.createElement("div");
+    row3.className = "volunteer-admin-row volunteer-admin-row-center";
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.textContent = "주간/요일 저장";
+    saveBtn.addEventListener("click", async () => {
+      const startDate = dateInput.value;
+      if (!startDate) {
+        alert("주 시작일을 선택해 주세요.");
+        return;
+      }
+      
+      const activeSlots = {};
+      let hasAny = false;
+      for (let i = 1; i <= 7; i++) {
+        if (slotsConfig[i].am || slotsConfig[i].pm) {
+          activeSlots[i] = slotsConfig[i];
+          hasAny = true;
+        }
+      }
+
+      if (!hasAny) {
+        alert("봉사 가능한 요일과 시간대를 한 개 이상 선택해 주세요.");
+        return;
+      }
+
+      setLoading(true, "봉사 가능 요일을 저장하는 중...");
+      try {
+        const weekStartDate = parseVisitDate(startDate);
+        if (!weekStartDate) throw new Error("Invalid start date");
+        
+        // Find Monday of that week
+        const day = weekStartDate.getDay();
+        const diff = (day + 6) % 7;
+        const monday = new Date(weekStartDate.getTime() - diff * 24 * 60 * 60 * 1000);
+        const mondayISO = toISODate(monday);
+        
+        const weekdayOrder = ["월", "화", "수", "목", "금", "토", "일"];
+        const newDays = [];
+        
+        for (let i = 0; i < 7; i++) {
+          const current = new Date(monday.getTime() + i * 24 * 60 * 60 * 1000);
+          const weekday = weekdayOrder[i];
+          const config = activeSlots.find(s => s.weekday === weekday);
+          
+          if (config && (config.am || config.pm)) {
+            newDays.push({
+              isoDate: toISODate(current),
+              dateText: formatVolunteerDateText(current),
+              weekday: weekday,
+              slotAMEnabled: config.am,
+              slotPMEnabled: config.pm,
+              participantEntries: []
+            });
+          }
+        }
+        
+        const { data: existingWeek, error: fetchError } = await supabaseClient
+          .from("volunteer_weeks")
+          .select("data")
+          .eq("week_start", mondayISO)
+          .single();
+          
+        let finalDays = newDays;
+        if (!fetchError && existingWeek && existingWeek.data && existingWeek.data.days) {
+          finalDays = newDays.map(newDay => {
+            const oldDay = existingWeek.data.days.find(d => d.isoDate === newDay.isoDate);
+            if (oldDay) {
+              return { 
+                ...oldDay, 
+                slotAMEnabled: newDay.slotAMEnabled, 
+                slotPMEnabled: newDay.slotPMEnabled 
+              };
+            }
+            return newDay;
+          });
+        }
+        
+        const weekData = { days: finalDays };
+        const saveRes = await saveVolunteerWeekToSupabase(mondayISO, weekData);
+        if (!saveRes.success) throw new Error(saveRes.message);
+        
+        await loadVolunteerConfig();
+        ensureVolunteerSelection();
+        renderVolunteerOverlay();
+        setStatus("봉사 가능 요일이 저장되었습니다.");
+      } catch (err) {
+        console.error("Set volunteer week error:", err);
+        alert("저장에 실패했습니다: " + err.message);
+      } finally {
+        setLoading(false);
+      }
+    });
+    row3.appendChild(saveBtn);
+    adminBox.appendChild(row3);
+    if (selectedDay && selectedDay.isoDate) {
+      const memoSlots = getAvailableVolunteerSlots(selectedDay);
+      memoSlots.forEach((slotName) => {
+        const memoBox = document.createElement("div");
+        memoBox.className = "volunteer-admin";
+        const memoRow = document.createElement("div");
+        memoRow.className = "volunteer-admin-row";
+        const slotLabel = document.createElement("span");
+        slotLabel.className = "volunteer-admin-label";
+        slotLabel.textContent = `${slotName} 메모`;
+        memoRow.appendChild(slotLabel);
+        memoBox.appendChild(memoRow);
+        const fixedRow = document.createElement("div");
+        fixedRow.className = "volunteer-admin-row";
+        const fixedLabel = document.createElement("span");
+        fixedLabel.className = "volunteer-admin-label";
+        fixedLabel.textContent = "요일 메모";
+        fixedRow.appendChild(fixedLabel);
+        const fixedMemoInput = document.createElement("input");
+        fixedMemoInput.type = "text";
+        fixedMemoInput.placeholder = `${selectedDay.weekday || ""} 공통 메모`;
+        fixedMemoInput.value = String(slotName === "오후" ? selectedDay.fixedMemoPM || "" : selectedDay.fixedMemoAM || "");
+        fixedRow.appendChild(fixedMemoInput);
+        memoBox.appendChild(fixedRow);
+        const extraRow = document.createElement("div");
+        extraRow.className = "volunteer-admin-row";
+        const extraLabel = document.createElement("span");
+        extraLabel.className = "volunteer-admin-label";
+        extraLabel.textContent = "날짜 메모";
+        extraRow.appendChild(extraLabel);
+        const extraMemoInput = document.createElement("input");
+        extraMemoInput.type = "text";
+        extraMemoInput.placeholder = `${slotName} 추가 메모`;
+        extraMemoInput.value = String(slotName === "오후" ? selectedDay.extraMemoPM || "" : selectedDay.extraMemoAM || "");
+        extraRow.appendChild(extraMemoInput);
+        memoBox.appendChild(extraRow);
+        const actionRow = document.createElement("div");
+        actionRow.className = "volunteer-admin-row volunteer-admin-row-center";
+        const memoSaveBtn = document.createElement("button");
+        memoSaveBtn.type = "button";
+        memoSaveBtn.textContent = "저장";
+        memoSaveBtn.addEventListener("click", async () => {
+          setLoading(true, "메모를 저장하는 중...");
+          try {
+            const weekStart = selectedDay.weekStartText || selectedDay.weekStartISO;
+            const { data: weekRow, error: fetchError } = await supabaseClient
+              .from("volunteer_weeks")
+              .select("data")
+              .eq("week_start", weekStart)
+              .single();
+              
+            if (fetchError) throw fetchError;
+            
+            const updatedData = { ...weekRow.data };
+            const dayObj = (updatedData.days || []).find(d => d.isoDate === selectedDay.isoDate);
+            if (dayObj) {
+              if (slotName === "오후") {
+                dayObj.fixedMemoPM = fixedMemoInput.value || "";
+                dayObj.extraMemoPM = extraMemoInput.value || "";
+              } else {
+                dayObj.fixedMemoAM = fixedMemoInput.value || "";
+                dayObj.extraMemoAM = extraMemoInput.value || "";
+              }
+            }
+            
+            const saveRes = await saveVolunteerWeekToSupabase(weekStart, updatedData);
+            if (!saveRes.success) throw new Error(saveRes.message);
+            
+            await loadVolunteerConfig();
+            ensureVolunteerSelection();
+            renderVolunteerOverlay();
+            setStatus("메모가 저장되었습니다.");
+          } catch (err) {
+            console.error("Set volunteer memo error:", err);
+            alert("메모 저장에 실패했습니다: " + err.message);
+          } finally {
+            setLoading(false);
+          }
+        });
+        actionRow.appendChild(memoSaveBtn);
+        memoBox.appendChild(actionRow);
+        adminBox.appendChild(memoBox);
+      });
+    }
+    if (selectedWeek && (selectedWeek.days || []).length) {
+      const statsTitle = document.createElement("div");
+      statsTitle.textContent = "선택 주간 신청 현황";
+      adminBox.appendChild(statsTitle);
+      const table = document.createElement("table");
+      table.className = "volunteer-admin-table";
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      ["날짜", "요일", "오전", "오후"].forEach((text) => {
+        const th = document.createElement("th");
+        th.textContent = text;
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      const sortedDays = selectedWeek.days.slice().sort((a, b) => {
+        const aISO = a.isoDate || "";
+        const bISO = b.isoDate || "";
+        return aISO.localeCompare(bISO);
+      });
+      sortedDays.forEach((d) => {
+        const tr = document.createElement("tr");
+        const tdDate = document.createElement("td");
+        tdDate.textContent = formatVolunteerDateText(d.dateText || d.isoDate);
+        tr.appendChild(tdDate);
+        const tdWeekday = document.createElement("td");
+        tdWeekday.textContent = d.weekday || "";
+        tr.appendChild(tdWeekday);
+        
+        const entries = d.participantEntries || [];
+        const amNames = entries.filter(e => (e.slot || "오전") === "오전").map(e => e.name);
+        const pmNames = entries.filter(e => e.slot === "오후").map(e => e.name);
+        
+        const tdAM = document.createElement("td");
+        tdAM.textContent = amNames.join(", ");
+        tr.appendChild(tdAM);
+        
+        const tdPM = document.createElement("td");
+        tdPM.textContent = pmNames.join(", ");
+        tr.appendChild(tdPM);
+        
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      adminBox.appendChild(table);
+    }
+    layout.appendChild(adminBox);
+  }
+  body.appendChild(layout);
+};
+
+const openVolunteerOverlay = async () => {
+  if (!elements.volunteerOverlay || !elements.volunteerBody) {
+    return;
+  }
+  await loadVolunteerConfig();
+  elements.volunteerOverlay.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  renderVolunteerOverlay();
 };
 
 const groupCardsByArea = () => {
-  const areas = {};
-  state.data.cards.forEach((card) => {
-    const key = String(card["구역번호"] || card.area || "");
-    if (!areas[key]) {
-      areas[key] = [];
-    }
-    areas[key].push(card);
+  const byArea = {};
+  (state.data.cards || []).forEach((card) => {
+    const areaId = String(card["구역번호"] || card.area || "");
+    if (!areaId) return;
+    if (!byArea[areaId]) byArea[areaId] = [];
+    byArea[areaId].push(card);
   });
-  return areas;
+  return byArea;
 };
 
-const areaCompletionStatus = (cards) => cards.every((card) => Boolean(card["최근방문일"]));
+const normalizeVisitDateText = (value) => {
+  if (!value) {
+    return "";
+  }
+  const d = toISODate(value);
+  if (!d) {
+    return "";
+  }
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yy}/${mm}/${dd}`;
+};
+
+const areaCompletionStatus = (cards) =>
+  cards.every(
+    (card) =>
+      Boolean(card["최근방문일"]) ||
+      isTrueValue(card["재방"]) ||
+      isTrueValue(card["연구"]) ||
+      isTrueValue(card["6개월"]) ||
+      isTrueValue(card["방문금지"])
+  );
 
 const getFirstInProgressArea = () => {
   const grouped = groupCardsByArea();
   const areaIds = Object.keys(grouped);
   for (const areaId of areaIds) {
+    if (isKslArea(areaId)) {
+      continue;
+    }
     if (!areaCompletionStatus(grouped[areaId])) {
       return areaId;
     }
   }
   return null;
+};
+
+const collapseExpandedArea = () => {
+  state.expandedAreaId = null;
+  state.selectedArea = null;
+  state.filterArea = "all";
+  state.scrollAreaToTop = false;
+  if (elements.filterArea) {
+    elements.filterArea.value = "all";
+  }
 };
 
 const renderAreas = () => {
@@ -240,10 +2556,48 @@ const renderAreas = () => {
   allOption.textContent = "전체구역";
   elements.filterArea.appendChild(allOption);
   const today = todayISO();
-  const areaIds = Object.keys(grouped);
+  const isLeader =
+    state.user &&
+    (state.user.role === "관리자" || state.user.role === "인도자");
+  const areasRows = state.data.areas || [];
+  let latestServiceDate = null;
+  let hasTodayInProgress = false;
+  areasRows.forEach((row) => {
+    const startD = row["시작날짜"] ? parseVisitDate(row["시작날짜"]) : null;
+    const endD = row["완료날짜"] ? parseVisitDate(row["완료날짜"]) : null;
+    const d = endD || startD;
+    if (d && !Number.isNaN(d.getTime())) {
+      if (!latestServiceDate || d.getTime() > latestServiceDate.getTime()) {
+        latestServiceDate = d;
+      }
+    }
+     if (
+       row["시작날짜"] &&
+       !row["완료날짜"] &&
+       isSameDay(row["시작날짜"], today)
+     ) {
+       hasTodayInProgress = true;
+     }
+  });
+  const areaIds = Object.keys(grouped).sort((a, b) => {
+    const sheetAreaOrder = (state.data.areas || []).map(row => String(row["구역번호"]));
+    const idxA = sheetAreaOrder.indexOf(String(a));
+    const idxB = sheetAreaOrder.indexOf(String(b));
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    
+    const na = Number(a);
+    const nb = Number(b);
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) {
+      return na - nb;
+    }
+    return String(a).localeCompare(String(b), "ko-KR");
+  });
   areaIds.forEach((areaId) => {
-    const createItem = () => {
+    const createItem = (withAssignButton) => {
       const item = document.createElement("div");
+      let justSwiped = false;
       item.className = "list-item";
       item.dataset.areaId = areaId;
       if (state.selectedArea === areaId) {
@@ -252,34 +2606,374 @@ const renderAreas = () => {
       const areaInfo = state.data.areas.find(
         (row) => String(row["구역번호"]) === String(areaId)
       );
-      let dateSuffix = "";
-      if (areaInfo) {
-        const start = areaInfo["시작날짜"] ? formatDate(areaInfo["시작날짜"]) : "";
-        const end = areaInfo["완료날짜"] ? formatDate(areaInfo["완료날짜"]) : "";
-        const range =
-          start && end ? `${start} ~ ${end}` : start ? start : end ? end : "";
+      const startText =
+        areaInfo && areaInfo["시작날짜"]
+          ? formatDate(areaInfo["시작날짜"])
+          : "";
+      const doneText =
+        areaInfo && areaInfo["완료날짜"]
+          ? formatDate(areaInfo["완료날짜"])
+          : "";
+      const title = document.createElement("div");
+      title.className = "area-title";
+      const mainRow = document.createElement("div");
+      mainRow.className = "area-title-main";
+      const idSpan = document.createElement("span");
+      idSpan.className = "area-id";
+      idSpan.textContent = `${areaId}`;
+      mainRow.appendChild(idSpan);
+      title.appendChild(mainRow);
+      const metaRow = document.createElement("div");
+      metaRow.className = "area-meta-row";
+      const cardsInArea = grouped[areaId];
+      const isComplete = areaCompletionStatus(cardsInArea);
+      const hasStart = Boolean(startText);
+      const hasDone = Boolean(doneText);
+      const inProgress = hasStart && !hasDone;
+      const areaCompleteDate =
+        areaInfo && areaInfo["완료날짜"]
+          ? parseVisitDate(areaInfo["완료날짜"])
+          : null;
+      const isToday =
+        areaInfo && areaInfo["시작날짜"]
+          ? isSameDay(areaInfo["시작날짜"], today)
+          : false;
+      const inviteInfo = state.inviteCampaign;
+      const isInviteArea =
+        inviteInfo &&
+        inviteInfo.startDate &&
+        inProgress &&
+        startText &&
+        startText >= inviteInfo.startDate;
+      const range = isComplete ? doneText || startText : startText || doneText;
+      const isKsl = isKslArea(areaId);
+      if (isComplete || inProgress) {
+        const labelParts = [];
         if (range) {
-          dateSuffix = ` [${range}]`;
+          labelParts.push(range);
+        }
+        labelParts.push(inProgress ? "시작" : "완료");
+        const stateChip = document.createElement("span");
+        stateChip.className = "area-date-range";
+        stateChip.textContent = labelParts.join(" ");
+        metaRow.appendChild(stateChip);
+      } else if (range) {
+        const dateSpan = document.createElement("span");
+        dateSpan.className = "area-date-range";
+        dateSpan.textContent = range;
+        metaRow.appendChild(dateSpan);
+      }
+      if (metaRow.childNodes.length) {
+        title.appendChild(metaRow);
+      }
+      const headerRow = document.createElement("div");
+      headerRow.className = "area-header-row";
+      const leftBox = document.createElement("div");
+      leftBox.className = "area-header-left";
+      leftBox.appendChild(title);
+      const rightBox = document.createElement("div");
+      rightBox.className = "area-header-right";
+      let badge = null;
+      if (inProgress) {
+        badge = document.createElement("span");
+        badge.className = "status-badge status-badge-progress";
+        badge.textContent = "진행중";
+        item.classList.add("area-in-progress");
+      }
+      if (isInviteArea) {
+        item.classList.add("area-invite-campaign");
+      }
+      const activityDate = areaCompleteDate || (startText ? parseVisitDate(startText) : null);
+      const isLastService = activityDate && latestServiceDate && activityDate.getTime() === latestServiceDate.getTime();
+
+      if (isToday) {
+        if (inProgress) {
+          item.classList.add("area-today");
+        } else if (isComplete) {
+          item.classList.add("area-today-complete");
+        }
+      } else if (isLastService) {
+        if (isComplete) {
+          item.classList.add("area-last-complete");
+        } else if (inProgress) {
+          item.classList.add("area-last-in-progress");
         }
       }
-      const isToday = areaInfo && isSameDay(areaInfo["시작날짜"], today);
-      const title = document.createElement("span");
-      title.textContent = `${areaId}${dateSuffix}`;
-      const badge = document.createElement("span");
-      badge.className = "status-badge";
-      const isComplete = areaCompletionStatus(grouped[areaId]);
-      badge.textContent = isComplete ? "완료" : "진행중";
-      if (isToday) {
-        item.classList.add("area-today");
+
+      const fg = document.createElement("div");
+      fg.className = "list-item-fg";
+
+      if (
+        withAssignButton &&
+        isLeader &&
+        ((inProgress && !isKsl) || isKsl) &&
+        String(state.expandedAreaId) === String(areaId)
+      ) {
+        const areaCards = (state.data.cards || []).filter(
+          (c) =>
+            String(c["구역번호"] || "") === String(areaId) &&
+            !isTrueValue(c["6개월"]) &&
+            !isTrueValue(c["방문금지"]) &&
+            !isTrueValue(c["재방"]) &&
+            !isTrueValue(c["연구"])
+        );
+        const areaCardNumbers = areaCards.map((c) => String(c["카드번호"] || ""));
+        
+        const bulkCheck = document.createElement("input");
+        bulkCheck.type = "checkbox";
+        bulkCheck.className = "area-bulk-check";
+        bulkCheck.title = "구역 전체 선택";
+        
+        const selectedForArea = areaCardNumbers.filter(cn => (state.selectedCards || []).includes(cn));
+        bulkCheck.checked = areaCardNumbers.length > 0 && selectedForArea.length === areaCardNumbers.length;
+        bulkCheck.indeterminate = selectedForArea.length > 0 && selectedForArea.length < areaCardNumbers.length;
+
+        ["click", "mousedown", "touchstart"].forEach(type => {
+          bulkCheck.addEventListener(type, (e) => {
+            e.stopPropagation();
+          });
+        });
+        bulkCheck.addEventListener("change", (e) => {
+          e.stopPropagation();
+          const set = new Set(state.selectedCards || []);
+          if (e.target.checked) {
+            areaCardNumbers.forEach(cn => set.add(cn));
+          } else {
+            areaCardNumbers.forEach(cn => set.delete(cn));
+          }
+          state.selectedCards = Array.from(set);
+          renderAreas();
+          renderCards(); 
+        });
+        rightBox.appendChild(bulkCheck);
+
+        const assignBtn = document.createElement("button");
+        assignBtn.type = "button";
+        assignBtn.textContent = "차량 배정";
+        assignBtn.className = "assign-cards-btn";
+        let assignPressTimer = null;
+        let assignLongPress = false;
+        const clearAssignPress = () => {
+          if (assignPressTimer) {
+            clearTimeout(assignPressTimer);
+            assignPressTimer = null;
+          }
+        };
+        const startAssignPress = () => {
+          clearAssignPress();
+          assignPressTimer = setTimeout(() => {
+            assignPressTimer = null;
+            assignLongPress = true;
+              const targetAssignDate = state.carAssignDate || todayISO();
+            const selectedCards = (state.selectedCards || []).filter(
+              (card) =>
+                String(card["구역번호"] || "") === String(areaId) &&
+                  getCardAssignedCarIdForDate(card, targetAssignDate)
+            );
+            if (!selectedCards.length) {
+              alert(
+                "차량 배정을 삭제할 카드를 먼저 선택해 주세요."
+              );
+              return;
+            }
+            if (
+              !window.confirm(
+                `구역 ${areaId}에서 선택된 카드들의 차량 배정을 모두 삭제할까요?`
+              )
+            ) {
+              return;
+            }
+            const allCards = state.data.cards || [];
+            selectedCards.forEach((sel) => {
+              const cn = String(sel["카드번호"] || "");
+              allCards.forEach((card) => {
+                if (
+                  String(card["구역번호"] || "") === String(areaId) &&
+                  String(card["카드번호"] || "") === cn
+                ) {
+                  card["차량"] = "";
+                  card["배정날짜"] = "";
+                }
+              });
+            });
+            renderCards();
+            renderCarAssignPopup();
+            setStatus("선택된 카드들의 차량 배정이 삭제되었습니다.");
+          }, 800);
+        };
+        assignBtn.addEventListener("mousedown", (event) => {
+          if (event.button !== 0) {
+            return;
+          }
+          event.stopPropagation();
+          startAssignPress();
+        });
+        assignBtn.addEventListener("touchstart", (event) => {
+          event.stopPropagation();
+          startAssignPress();
+        });
+        ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach(
+          (type) => {
+            assignBtn.addEventListener(type, clearAssignPress);
+          }
+        );
+        assignBtn.addEventListener("click", (event) => {
+          event.stopPropagation();
+          if (assignLongPress) {
+            assignLongPress = false;
+            return;
+          }
+          if (!state.selectedArea || state.selectedArea !== areaId) {
+            alert("해당 구역의 카드를 먼저 펼쳐서 선택해 주세요.");
+            return;
+          }
+          const selected = state.selectedCards.slice();
+          if (!selected.length) {
+            alert("배정할 카드를 선택해 주세요.");
+            return;
+          }
+          const cars = state.carAssignments || [];
+          if (!cars.length) {
+            alert("먼저 차량 배정 패널에서 차량을 설정해 주세요.");
+            return;
+          }
+          openCarSelectPopup(areaId, selected);
+        });
+        rightBox.appendChild(assignBtn);
       }
-      item.append(title, badge);
+      const showStartButton =
+        withAssignButton &&
+        hasDone &&
+        !isKsl &&
+        state.user &&
+        (state.user.role === "인도자" || state.user.role === "관리자");
+      if (showStartButton) {
+        const startBtn = document.createElement("button");
+        startBtn.type = "button";
+        startBtn.textContent = "봉사 시작";
+        startBtn.className = "start-service-btn";
+        startBtn.addEventListener("click", (event) => {
+          event.stopPropagation();
+          if (!window.confirm(`${areaId} 봉사를 시작할까요?`)) {
+            return;
+          }
+          state.expandedAreaId = areaId;
+          state.filterArea = areaId;
+          elements.filterArea.value = areaId;
+          selectArea(areaId);
+          startServiceForArea(areaId);
+          elements.areaOverlay.classList.add("hidden");
+          renderAreas();
+          renderCards();
+        });
+        rightBox.appendChild(startBtn);
+      }
+      if (badge) {
+        rightBox.appendChild(badge);
+      }
+      headerRow.append(leftBox, rightBox);
+      fg.appendChild(headerRow);
+
+      if (inProgress && String(state.expandedAreaId) !== String(areaId) && isLeader) {
+        const bg = document.createElement("div");
+        bg.className = "list-item-bg";
+        const completeAction = document.createElement("div");
+        completeAction.className = "swipe-action swipe-action-left";
+        completeAction.textContent = "완료처리";
+        const cancelAction = document.createElement("div");
+        cancelAction.className = "swipe-action swipe-action-right";
+        cancelAction.textContent = "봉사취소";
+        bg.append(completeAction, cancelAction);
+        item.appendChild(bg);
+
+        let startX = null;
+        let startY = null;
+        let currentX = 0;
+        let isSwiping = false;
+        const threshold = 70;
+
+        const handleStart = (e) => {
+          if (state.expandedAreaId === areaId) return;
+          startX = e.type.startsWith("touch") ? e.touches[0].clientX : e.clientX;
+          startY = e.type.startsWith("touch") ? e.touches[0].clientY : e.clientY;
+          isSwiping = false;
+          justSwiped = false;
+          fg.style.transition = "none";
+        };
+
+        const handleMove = (e) => {
+          if (startX === null || state.expandedAreaId === areaId) return;
+          const x = e.type.startsWith("touch") ? e.touches[0].clientX : e.clientX;
+          const y = e.type.startsWith("touch") ? e.touches[0].clientY : e.clientY;
+          const dx = x - startX;
+          const dy = y - startY;
+
+          if (!isSwiping) {
+            if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+              isSwiping = true;
+            }
+          }
+
+          if (isSwiping) {
+            if (e.cancelable) e.preventDefault();
+            currentX = dx;
+            fg.style.transform = `translateX(${currentX}px)`;
+          }
+        };
+
+        const handleEnd = async (e) => {
+          if (startX === null || state.expandedAreaId === areaId) return;
+          fg.style.transition = "transform 0.2s ease-out";
+          fg.style.transform = "translateX(0)";
+
+          if (isSwiping) {
+            justSwiped = true;
+            setTimeout(() => { justSwiped = false; }, 100);
+            if (currentX > threshold) {
+              if (window.confirm(`구역 ${areaId}를 완료 처리할까요?\n(방문 기록이 없는 카드는 '부재'로 기록됩니다)`)) {
+                await finishAreaWithoutVisits(areaId);
+              }
+            } else if (currentX < -threshold) {
+              if (window.confirm(`구역 ${areaId}의 봉사 시작을 취소할까요?`)) {
+                await cancelServiceForArea(areaId);
+              }
+            }
+          }
+          startX = null;
+          startY = null;
+          isSwiping = false;
+          currentX = 0;
+        };
+
+        item.addEventListener("touchstart", handleStart, { passive: true });
+        item.addEventListener("touchmove", handleMove, { passive: false });
+        item.addEventListener("touchend", handleEnd);
+        item.addEventListener("mousedown", handleStart);
+        const moveHandler = (e) => handleMove(e);
+        const endHandler = (e) => {
+          handleEnd(e);
+          window.removeEventListener("mousemove", moveHandler);
+          window.removeEventListener("mouseup", endHandler);
+        };
+        item.addEventListener("mousedown", () => {
+          window.addEventListener("mousemove", moveHandler);
+          window.addEventListener("mouseup", endHandler);
+        });
+      }
+
+      item.appendChild(fg);
       item.addEventListener("click", (event) => {
+        if (justSwiped) return;
         if (
           event.target.closest(".area-cards") ||
           event.target.closest("#card-list") ||
           event.target.closest(".card") ||
           event.target.closest(".card-history") ||
-          event.target.closest("#visit-form")
+          event.target.closest("#visit-form") ||
+          event.target.closest(".area-bulk-check") ||
+          event.target.closest(".status-badge-progress") ||
+          event.target.closest(".assign-cards-btn") ||
+          event.target.closest(".start-service-btn")
         ) {
           return;
         }
@@ -288,43 +2982,21 @@ const renderAreas = () => {
           state.filterArea = "all";
           elements.filterArea.value = "all";
           state.selectedArea = null;
+          state.scrollAreaToTop = false;
+          renderAreas();
+          renderCards();
         } else {
           state.expandedAreaId = areaId;
           state.filterArea = areaId;
           elements.filterArea.value = areaId;
           selectArea(areaId);
         }
-        renderAreas();
-        renderCards();
       });
       return item;
     };
-    const createStartButton = () => {
-      const startBtn = document.createElement("button");
-      startBtn.type = "button";
-      startBtn.textContent = "봉사 시작";
-      startBtn.style.marginLeft = "auto";
-      startBtn.className = "start-service-btn";
-      startBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        state.expandedAreaId = areaId;
-        state.filterArea = areaId;
-        elements.filterArea.value = areaId;
-        selectArea(areaId);
-        startServiceForArea(areaId);
-        elements.areaOverlay.classList.add("hidden");
-        renderAreas();
-        renderCards();
-      });
-      return startBtn;
-    };
-    const leftItem = createItem();
-    const overlayItem = createItem();
-    const inlineItem = createItem();
-    if (areaCompletionStatus(grouped[areaId])) {
-      overlayItem.appendChild(createStartButton());
-      inlineItem.appendChild(createStartButton());
-    }
+    const leftItem = createItem(false);
+    const overlayItem = createItem(true);
+    const inlineItem = createItem(true);
     elements.areaList.appendChild(leftItem);
     elements.areaListOverlay.appendChild(overlayItem);
     elements.areaListInline.appendChild(inlineItem);
@@ -336,684 +3008,50 @@ const renderAreas = () => {
   elements.filterArea.value = state.filterArea;
 };
 
-const renderCards = () => {
-  elements.cardList.innerHTML = "";
-  let rawCards = state.data.cards.slice();
-  if (state.filterArea !== "all") {
-    rawCards = rawCards.filter(
-      (card) => String(card["구역번호"]) === String(state.filterArea)
-    );
-  }
-  const areaInfo =
-    state.selectedArea && state.filterArea !== "all"
-      ? state.data.areas.find(
-          (row) => String(row["구역번호"]) === String(state.selectedArea)
-        )
-      : null;
-  let startDate = null;
-  if (areaInfo && areaInfo["시작날짜"]) {
-    const parsed = parseVisitDate(areaInfo["시작날짜"]);
-    if (parsed) {
-      startDate = parsed;
-    }
-  }
-  let cards = rawCards.slice();
-  const query = state.searchQuery.trim();
-  const shouldHideAll =
-    state.filterArea === "all" &&
-    !state.expandedAreaId &&
-    !query &&
-    state.filterStatus === "all" &&
-    state.filterVisit === "all";
-  if (shouldHideAll) {
-    elements.cardListHome.appendChild(elements.cardList);
-    elements.cardList.classList.add("hidden");
-    elements.visitForm.classList.add("hidden");
-    elements.cardListHome.appendChild(elements.visitForm);
+const exportToExcel = async () => {
+  if (!supabaseClient) {
+    alert("Supabase 클라이언트가 초기화되지 않았습니다.");
     return;
   }
-  if (query) {
-    cards = cards.filter((card) =>
-      `${card["주소"] || ""} ${card["상세주소"] || ""}`.includes(query)
-    );
-  }
-  if (state.filterVisit === "meet") {
-    cards = cards.filter((card) => isTrueValue(card["만남"]));
-  } else if (state.filterVisit === "absent") {
-    cards = cards.filter(
-      (card) => card["만남"] === false || isTrueValue(card["부재"])
-    );
-  } else if (state.filterVisit === "invite") {
-    cards = cards.filter((card) => isTrueValue(card["초대장"]));
-  } else if (state.filterVisit === "six") {
-    cards = cards.filter((card) => isTrueValue(card["6개월"]));
-  } else if (state.filterVisit === "banned") {
-    cards = cards.filter((card) => isTrueValue(card["방문금지"]));
-  }
-  cards.sort((a, b) => {
-    const getUnvisited = (card) => {
-      if (!startDate) {
-        return false;
-      }
-      if (!card["최근방문일"]) {
-        return true;
-      }
-      const d = parseVisitDate(card["최근방문일"]);
-      if (!d) {
-        return false;
-      }
-      return d < startDate;
-    };
-    if (state.sortOrder === "visitDate") {
-      const da = parseVisitDate(a["최근방문일"]);
-      const db = parseVisitDate(b["최근방문일"]);
-      const va = da ? da.getTime() : 0;
-      const vb = db ? db.getTime() : 0;
-      if (va !== vb) {
-        return vb - va;
-      }
-    } else if (state.sortOrder === "worker") {
-      const wa = String(a["정기방문자"] || "");
-      const wb = String(b["정기방문자"] || "");
-      if (wa !== wb) {
-        return wa.localeCompare(wb);
-      }
-    } else if (state.sortOrder === "address") {
-      const aa = `${a["주소"] || ""} ${a["상세주소"] || ""}`;
-      const ab = `${b["주소"] || ""} ${b["상세주소"] || ""}`;
-      if (aa !== ab) {
-        return aa.localeCompare(ab);
-      }
-    } else if (state.sortOrder === "number") {
-      const na = String(a["카드번호"] || "");
-      const nb = String(b["카드번호"] || "");
-      if (na !== nb) {
-        return na.localeCompare(nb);
-      }
-    }
-    const na = String(a["카드번호"] || "");
-    const nb = String(b["카드번호"] || "");
-    return na.localeCompare(nb);
-  });
-  cards.forEach((card) => {
-    const cardEl = document.createElement("div");
-    cardEl.className = "card";
-    if (state.selectedCard && card["카드번호"] === state.selectedCard["카드번호"]) {
-      cardEl.classList.add("active");
-    }
-    let unvisited = false;
-    if (startDate) {
-      if (card["최근방문일"]) {
-        const recentDate = parseVisitDate(card["최근방문일"]);
-        if (recentDate && recentDate < startDate) {
-          unvisited = true;
-        }
-      }
-    }
-    if (unvisited) {
-      cardEl.classList.add("card-unvisited");
-    }
-    const title = document.createElement("div");
-    title.className = "card-header";
-    const mainTitle = document.createElement("strong");
-    mainTitle.textContent = card["카드번호"] || "";
-    const badgeRow = document.createElement("div");
-    badgeRow.className = "card-badges";
-    if (card["방문금지"]) {
-      const ban = document.createElement("span");
-      ban.className = "badge badge-danger";
-      ban.textContent = "방문금지";
-      badgeRow.appendChild(ban);
-    }
-    const meetVal = card["만남"];
-    const absentVal = card["부재"];
-    const recentVal = card["최근방문일"];
-    if (!recentVal) {
-      const unv = document.createElement("span");
-      unv.className = "badge badge-unvisited";
-      unv.textContent = "미방문";
-      badgeRow.appendChild(unv);
-    } else if (isTrueValue(meetVal)) {
-      const meet = document.createElement("span");
-      meet.className = "badge badge-success";
-      meet.textContent = "만남";
-      badgeRow.appendChild(meet);
-    } else if (meetVal === false || isTrueValue(absentVal)) {
-      const absent = document.createElement("span");
-      absent.className = "badge";
-      absent.textContent = "부재";
-      badgeRow.appendChild(absent);
-    } else if (card["초대장"]) {
-      const invite = document.createElement("span");
-      invite.className = "badge badge-invite";
-      invite.textContent = "초대장";
-      badgeRow.appendChild(invite);
-    } else if (card["6개월"]) {
-      const six = document.createElement("span");
-      six.className = "badge badge-sixmonths";
-      six.textContent = "6개월";
-      badgeRow.appendChild(six);
-    }
-    title.append(mainTitle, badgeRow);
-    const address = document.createElement("div");
-    address.className = "card-line";
-    const addrText = [card["주소"], card["상세주소"]].filter(Boolean).join(" ");
-    address.textContent = addrText;
-    const visitInfo = document.createElement("div");
-    visitInfo.className = "card-line";
-    visitInfo.textContent = card["최근방문일"]
-      ? `최근방문: ${formatDate(card["최근방문일"])}`
-      : "최근방문 없음";
-    const regular = document.createElement("div");
-    regular.className = "card-line";
-    if (card["정기방문자"]) {
-      regular.textContent = `정기방문자: ${card["정기방문자"]}`;
-    }
-    const info = document.createElement("div");
-    info.className = "card-line";
-    if (card["정보"]) {
-      info.textContent = `정보: ${card["정보"]}`;
-    }
-    const nav = document.createElement("div");
-    nav.className = "nav-links";
-    const searchText = card["주소"] || "";
-    const encoded = encodeURIComponent(searchText || card["카드번호"] || "");
-    const kakao = document.createElement("a");
-    kakao.href = `https://map.kakao.com/link/search/${encoded}`;
-    kakao.target = "_blank";
-    kakao.rel = "noopener noreferrer";
-    kakao.textContent = "카카오";
-    const naver = document.createElement("a");
-    naver.href = `https://m.map.naver.com/search2/search.naver?query=${encoded}`;
-    naver.target = "_blank";
-    naver.rel = "noopener noreferrer";
-    naver.textContent = "네이버";
-    const tmap = document.createElement("a");
-    tmap.href = "https://www.tmap.co.kr";
-    tmap.target = "_blank";
-    tmap.rel = "noopener noreferrer";
-    tmap.textContent = "티맵";
-    const google = document.createElement("a");
-    google.href = `https://www.google.com/maps/search/?api=1&query=${encoded}`;
-    google.target = "_blank";
-    google.rel = "noopener noreferrer";
-    google.textContent = "구글";
-    nav.append(kakao, naver, tmap, google);
-    cardEl.append(title, address, visitInfo);
-    if (regular.textContent) {
-      cardEl.appendChild(regular);
-    }
-    if (info.textContent) {
-      cardEl.appendChild(info);
-    }
-    cardEl.appendChild(nav);
-    if (state.selectedCard && card["카드번호"] === state.selectedCard["카드번호"]) {
-      const oneYearAgo = new Date();
-      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    const normalizeId = (v) =>
-      String(v == null ? "" : v).trim().replace(/\s+/g, "");
-    const allRows = (state.data.visits || [])
-        .filter(
-          (row) =>
-          normalizeId(row["구역카드"]) === normalizeId(card["카드번호"])
-      );
-      const lastYearRows = allRows.filter((row) => {
-        const d = parseVisitDate(getVisitDateValue(row));
-        return d && d >= oneYearAgo;
-      });
-    const historyRows = (lastYearRows.length ? lastYearRows : allRows).sort(
-      (a, b) => {
-        const db = parseVisitDate(getVisitDateValue(b));
-        const da = parseVisitDate(getVisitDateValue(a));
-        const tb = db ? db.getTime() : 0;
-        const ta = da ? da.getTime() : 0;
-        return tb - ta;
-      }
-    );
-      const history = document.createElement("div");
-      history.className = "card-history";
-      if (!historyRows.length) {
-        const empty = document.createElement("div");
-        empty.className = "card-history-empty";
-        empty.textContent = "방문내역 없음";
-        history.appendChild(empty);
-      } else {
-        const maxItems = 200;
-        historyRows.slice(0, maxItems).forEach((row) => {
-          const resultText = row["결과"] || row["방문결과"] || "";
-          const workerText = row["전도인"] || row["방문자"] || "";
-          const memoText = row["메모"] || row["비고"] || "";
-          const item = document.createElement("div");
-          item.className = "card-history-item";
-          item.textContent = `${formatDate(getVisitDateValue(row))} · ${workerText} · ${resultText}${memoText ? " · " + memoText : ""}`;
-          item.addEventListener("click", (event) => {
-            event.stopPropagation();
-            state.editingVisit = {
-              areaId: String(card["구역번호"]),
-              cardNumber: String(card["카드번호"]),
-              oldVisitDate: String(getVisitDateValue(row)),
-              oldWorker: String(workerText),
-              oldResult: String(resultText),
-              oldNote: String(memoText)
-            };
-            elements.visitTitle.textContent = `카드 ${card["카드번호"]} 방문 내역 수정`;
-            elements.visitDate.value = toISODate(getVisitDateValue(row));
-            elements.visitWorker.value = workerText;
-            elements.visitResult.value = resultText || "만남";
-            elements.visitNote.value = memoText || "";
-          });
-          history.appendChild(item);
-        });
-      }
-      cardEl.appendChild(history);
-      elements.visitForm.classList.remove("hidden");
-      cardEl.appendChild(elements.visitForm);
-    }
-    cardEl.addEventListener("click", (event) => {
-      if (event.target.closest("#visit-form")) {
-        return;
-      }
-      if (
-        state.selectedCard &&
-        state.selectedCard["카드번호"] === card["카드번호"]
-      ) {
-        state.selectedCard = null;
-        elements.visitForm.classList.add("hidden");
-        elements.cardList.parentElement.appendChild(elements.visitForm);
-        renderCards();
-        return;
-      }
-      selectCard(card);
-    });
-    elements.cardList.appendChild(cardEl);
-  });
-  if (!state.selectedCard) {
-    elements.visitForm.classList.add("hidden");
-    elements.cardList.parentElement.appendChild(elements.visitForm);
-  }
-  const expanded =
-    state.filterArea !== "all"
-      ? elements.areaListInline.querySelector(
-          `[data-area-id="${state.expandedAreaId || ""}"]`
-        )
-      : null;
-  if (expanded) {
-    let container = expanded.querySelector(".area-cards");
-    if (!container) {
-      container = document.createElement("div");
-      container.className = "area-cards";
-      expanded.appendChild(container);
-    }
-    container.appendChild(elements.cardList);
-    expanded.scrollIntoView({ behavior: "smooth", block: "start" });
-  } else {
-    elements.cardListHome.appendChild(elements.cardList);
-  }
-  elements.cardList.classList.remove("hidden");
-};
-
-const renderVisitsView = () => {
-  elements.cardList.innerHTML = "";
-  elements.visitForm.classList.add("hidden");
-  const query = state.searchQuery.trim();
-  const filterResult = state.visitFilter;
-  const getCardKey = (row) =>
-    `${row["구역번호"] || ""}__${getVisitCardNumber(row)}`;
-  const cardMap = {};
-  state.data.cards.forEach((card) => {
-    const key = `${card["구역번호"] || ""}__${card["카드번호"] || ""}`;
-    cardMap[key] = card;
-  });
-  let rows = (state.data.visits || []).slice();
-  if (filterResult === "meet") {
-    rows = rows.filter((r) => String(r["결과"] || r["방문결과"] || "") === "만남");
-  } else if (filterResult === "absent") {
-    rows = rows.filter((r) => String(r["결과"] || r["방문결과"] || "") === "부재");
-  } else if (filterResult === "invite") {
-    rows = rows.filter((r) => String(r["결과"] || r["방문결과"] || "") === "초대장");
-  } else if (filterResult === "six") {
-    rows = rows.filter((r) => String(r["결과"] || r["방문결과"] || "") === "6개월");
-  } else if (filterResult === "banned") {
-    rows = rows.filter((r) => String(r["결과"] || r["방문결과"] || "") === "방문금지");
-  }
-  if (query) {
-    rows = rows.filter((row) => {
-      const card = cardMap[getCardKey(row)] || {};
-      const addr = `${card["주소"] || ""} ${card["상세주소"] || ""}`;
-      return addr.includes(query);
-    });
-  }
-  rows.sort((a, b) => {
-    if (state.sortOrder === "visitDate") {
-      const da = parseVisitDate(getVisitDateValue(a));
-      const db = parseVisitDate(getVisitDateValue(b));
-      const va = da ? da.getTime() : 0;
-      const vb = db ? db.getTime() : 0;
-      if (va !== vb) {
-        return vb - va;
-      }
-    } else if (state.sortOrder === "worker") {
-      const wa = String(a["전도인"] || "");
-      const wb = String(b["전도인"] || "");
-      if (wa !== wb) {
-        return wa.localeCompare(wb);
-      }
-    } else if (state.sortOrder === "address") {
-      const cardA = cardMap[getCardKey(a)] || {};
-      const cardB = cardMap[getCardKey(b)] || {};
-      const aa = `${cardA["주소"] || ""} ${cardA["상세주소"] || ""}`;
-      const ab = `${cardB["주소"] || ""} ${cardB["상세주소"] || ""}`;
-      if (aa !== ab) {
-        return aa.localeCompare(ab);
-      }
-    }
-    const da = parseVisitDate(getVisitDateValue(a));
-    const db = parseVisitDate(getVisitDateValue(b));
-    const va = da ? da.getTime() : 0;
-    const vb = db ? db.getTime() : 0;
-    return vb - va;
-  });
-  elements.cardList.classList.remove("card-grid");
-  rows.slice(0, 200).forEach((row) => {
-    const item = document.createElement("div");
-    item.className = "list-item";
-    const title = document.createElement("div");
-    title.textContent = `${row["구역번호"] || ""} - ${getVisitCardNumber(row)} (${formatDate(
-      getVisitDateValue(row)
-    )})`;
-    const sub = document.createElement("div");
-    sub.textContent = `${row["전도인"] || row["방문자"] || ""} · ${
-      row["결과"] || row["방문결과"] || ""
-    }${row["메모"] || row["비고"] ? " · " + (row["메모"] || row["비고"]) : ""}`;
-    item.append(title, sub);
-    elements.cardList.appendChild(item);
-  });
-};
-
-const startServiceForArea = async (areaId) => {
-  if (!areaId) {
-    alert("구역을 선택해 주세요.");
+  if (!window.XLSX) {
+    alert("Excel 라이브러리를 불러오지 못했습니다.");
     return;
   }
-  setLoading(true, "봉사 시작 중...");
+
+  setLoading(true, "Supabase 데이터를 백업용 엑셀로 생성 중...");
   try {
-    await apiRequest("startService", {
-      areaId,
-      leaderName: state.user.name,
-      date: todayISO()
-    });
-    setStatus("오늘 봉사가 시작되었습니다.");
-    await loadData();
-    renderAreas();
-    renderAdminPanel();
-    state.selectedArea = areaId;
-    state.view = "area";
-    elements.areaTitle.textContent = `구역 ${areaId}`;
-    renderCards();
+    const tables = [
+      { name: "areas", label: "구역정보" },
+      { name: "cards", label: "구역카드" },
+      { name: "visits", label: "방문기록" },
+      { name: "evangelists", label: "전도인명단" },
+      { name: "car_assignments", label: "차량배정" },
+      { name: "volunteer_weeks", label: "봉사신청설정" },
+      { name: "completions", label: "완료내역" },
+      { name: "invite_campaign", label: "초대장캠페인" }
+    ];
+
+    const wb = XLSX.utils.book_new();
+
+    for (const table of tables) {
+      const { data, error } = await supabaseClient.from(table.name).select("*");
+      if (error) {
+        console.warn(`Table ${table.name} backup error:`, error);
+        continue;
+      }
+      if (data && data.length > 0) {
+        const ws = XLSX.utils.json_to_sheet(data);
+        XLSX.utils.book_append_sheet(wb, ws, table.label);
+      }
+    }
+
+    const fileName = `MinistryCard_Backup_${new Date().toISOString().split("T")[0]}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+    setStatus("데이터 백업이 완료되었습니다.");
+  } catch (err) {
+    console.error("Excel export error:", err);
+    alert("엑셀 백업 중 오류가 발생했습니다: " + err.message);
   } finally {
     setLoading(false);
   }
 };
-
-const renderAdminPanel = () => {
-  if (!state.user || state.user.role !== "관리자") {
-    elements.adminPanel.classList.add("hidden");
-    return;
-  }
-  elements.adminPanel.classList.remove("hidden");
-  elements.completionList.innerHTML = state.data.completions
-    .map(
-      (row) =>
-        `<div class="list-item">${row["구역번호"]} | ${formatDate(
-          row["시작날짜"]
-        )} → ${formatDate(row["완료날짜"])}</div>`
-    )
-    .join("");
-  elements.visitList.innerHTML = state.data.visits
-    .slice(-20)
-    .map(
-      (row) =>
-        `<div class="list-item">${row["구역번호"]} ${getVisitCardNumber(
-          row
-        )} | ${formatDate(
-          getVisitDateValue(row)
-        )} | ${row["전도인"] || row["방문자"] || ""}</div>`
-    )
-    .join("");
-  elements.evangelistList.innerHTML = state.data.evangelists
-    .map((row) => `<div class="list-item">${row["이름"]} | ${row["역할"]}</div>`)
-    .join("");
-};
-
-const selectArea = (areaId) => {
-  state.selectedArea = areaId;
-  state.selectedCard = null;
-  elements.areaTitle.textContent = `구역 ${areaId}`;
-  elements.leaderActions.classList.toggle("hidden", state.user.role === "전도인");
-  renderAreas();
-  renderCards();
-  setStatus("");
-};
-
-const selectCard = (card) => {
-  state.selectedCard = card;
-  state.editingVisit = null;
-  elements.visitTitle.textContent = `카드 ${card["카드번호"]} 방문 기록`;
-  elements.visitDate.value = todayISO();
-  elements.visitWorker.value = state.user.name;
-  const meetVal = card["만남"];
-  const absentVal = card["부재"];
-  elements.visitResult.value = isTrueValue(meetVal)
-    ? "만남"
-    : meetVal === false || isTrueValue(absentVal)
-    ? "부재"
-    : card["초대장"]
-    ? "초대장"
-    : card["6개월"]
-    ? "6개월"
-    : card["방문금지"]
-    ? "방문금지"
-    : "만남";
-  elements.visitNote.value = "";
-  renderCards();
-};
-
-const loadData = async () => {
-  setLoading(true, "데이터 불러오는 중...");
-  try {
-    const data = await apiRequest("bootstrap", {}, "GET");
-    if (data.error) {
-      throw new Error(data.error);
-    }
-    state.data.cards = data.cards || [];
-    state.data.areas = data.areas || data.areaStatus || [];
-    state.data.completions = data.completions || [];
-    state.data.visits = data.visits || [];
-    state.data.evangelists = data.evangelists || [];
-  } finally {
-    setLoading(false);
-  }
-};
-
-const login = async () => {
-  const name = elements.nameInput.value.trim();
-  const password = elements.passwordInput.value.trim();
-  if (!name) {
-    alert("이름을 입력해 주세요.");
-    return;
-  }
-  const res = await apiRequest("login", { name, password });
-  if (!res.success) {
-    alert(res.message || "로그인 실패");
-    return;
-  }
-  state.user = { role: res.role, name: res.name };
-  elements.userInfo.textContent = `${state.user.name} (${state.user.role})`;
-  elements.loginPanel.classList.add("hidden");
-  elements.dashboard.classList.remove("hidden");
-  await loadData();
-  if (!state.expandedAreaId && state.filterArea === "all") {
-    const inProgressAreaId = getFirstInProgressArea();
-    if (inProgressAreaId) {
-      state.expandedAreaId = inProgressAreaId;
-      state.filterArea = inProgressAreaId;
-      state.selectedArea = inProgressAreaId;
-    }
-  }
-  renderAreas();
-  renderCards();
-  renderAdminPanel();
-};
-
-const startService = async () => {
-  if (!state.selectedArea) {
-    alert("구역을 선택해 주세요.");
-    return;
-  }
-  await startServiceForArea(state.selectedArea);
-};
-
-const resetRecentVisits = async () => {
-  if (!state.selectedArea) {
-    alert("구역을 선택해 주세요.");
-    return;
-  }
-  await apiRequest("resetRecentVisits", { areaId: state.selectedArea });
-  setStatus("최근방문일이 초기화되었습니다.");
-  await loadData();
-  renderAreas();
-  renderCards();
-  renderAdminPanel();
-};
-
-const saveVisit = async (event) => {
-  event.preventDefault();
-  if (!state.selectedArea || !state.selectedCard) {
-    return;
-  }
-  const areaId = state.selectedArea;
-  const cardNumber = state.selectedCard["카드번호"];
-  const visitDate = elements.visitDate.value;
-  const worker = elements.visitWorker.value.trim();
-  const result = elements.visitResult.value;
-  const note = elements.visitNote.value.trim();
-  if (!visitDate || !worker || !result) {
-    alert("방문일, 전도인, 결과를 입력해 주세요.");
-    return;
-  }
-  const oldISO =
-    state.editingVisit && state.editingVisit.oldVisitDate
-      ? toISODate(state.editingVisit.oldVisitDate)
-      : null;
-  const isEdit =
-    Boolean(state.editingVisit) &&
-    visitDate === oldISO &&
-    worker === String(state.editingVisit.oldWorker || "");
-  setLoading(true, isEdit ? "방문 기록 수정 중..." : "방문 기록 저장 중...");
-  try {
-    const res = isEdit
-      ? await apiRequest("updateVisit", {
-          areaId,
-          cardNumber,
-          oldVisitDate: state.editingVisit.oldVisitDate,
-          oldWorker: state.editingVisit.oldWorker,
-          newVisitDate: visitDate,
-          newWorker: worker,
-          newResult: result,
-          newNote: note,
-          leaderName: state.user.name
-        })
-      : await apiRequest("recordVisit", {
-          areaId,
-          cardNumber,
-          visitDate,
-          worker,
-          result,
-          note,
-          leaderName: state.user.name
-        });
-    if (res && res.visit) {
-      if (isEdit) {
-        const oldKey = (row) =>
-          `${row["구역번호"] || ""}__${getVisitCardNumber(row) || ""}__${String(getVisitDateValue(row) || "")}__${String(row["전도인"] || row["방문자"] || "")}`;
-        const newKey = `${String(areaId)}__${String(cardNumber)}__${String(res.visit["방문날짜"] || res.visit["방문일"] || res.visit["방문일자"] || "")}__${String(res.visit["전도인"] || res.visit["방문자"] || "")}`;
-        state.data.visits = (state.data.visits || []).map((row) => (oldKey(row) === `${String(state.editingVisit.areaId)}__${String(state.editingVisit.cardNumber)}__${String(state.editingVisit.oldVisitDate)}__${String(state.editingVisit.oldWorker)}` ? res.visit : row));
-      } else {
-        state.data.visits = [res.visit, ...(state.data.visits || [])];
-      }
-    }
-    const updatedCard = state.data.cards.find(
-      (card) =>
-        String(card["구역번호"]) === String(areaId) &&
-        String(card["카드번호"]) === String(cardNumber)
-    );
-    if (updatedCard) {
-      updatedCard["최근방문일"] = res?.cardUpdate?.recentVisitDate || visitDate;
-      updatedCard["만남"] = res?.cardUpdate?.meet ?? (result === "만남");
-      updatedCard["부재"] = res?.cardUpdate?.absent ?? (result === "부재");
-      updatedCard["초대장"] = res?.cardUpdate?.invite ?? (result === "초대장");
-      updatedCard["6개월"] = res?.cardUpdate?.sixMonths ?? (result === "6개월");
-      updatedCard["방문금지"] = res?.cardUpdate?.banned ?? (result === "방문금지");
-      state.selectedCard = updatedCard;
-    }
-    if (res.complete) {
-      await loadData();
-    }
-    renderAreas();
-    renderCards();
-    renderAdminPanel();
-    if (isEdit) {
-      setStatus("방문내역이 수정되었습니다.");
-      state.editingVisit = null;
-    } else {
-      if (res.complete) {
-        setStatus("모든 카드의 최근방문일이 기록되었습니다. 완료내역이 업데이트되었습니다.");
-      } else {
-        setStatus("방문내역이 기록되었습니다.");
-      }
-    }
-  } finally {
-    setLoading(false);
-  }
-};
-
-elements.saveApiUrl.addEventListener("click", saveApiUrl);
-elements.loginButton.addEventListener("click", login);
-elements.startService.addEventListener("click", startService);
-elements.closeAreas.addEventListener("click", () => {
-  elements.areaOverlay.classList.add("hidden");
-});
-elements.cardList.addEventListener("click", (event) => {
-  event.stopPropagation();
-});
-elements.visitForm.addEventListener("click", (event) => {
-  event.stopPropagation();
-});
-elements.searchButton.addEventListener("click", () => {
-  state.searchQuery = elements.searchInput.value;
-  renderCards();
-});
-elements.searchInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    elements.searchButton.click();
-  }
-});
-elements.filterArea.addEventListener("change", () => {
-  state.filterArea = elements.filterArea.value;
-  if (state.filterArea === "all") {
-    state.selectedArea = null;
-    state.expandedAreaId = null;
-  } else {
-    state.selectedArea = state.filterArea;
-    state.expandedAreaId = state.filterArea;
-  }
-  renderAreas();
-  renderCards();
-});
-elements.filterVisit.addEventListener("change", () => {
-  state.filterVisit = elements.filterVisit.value;
-  renderCards();
-});
-elements.visitForm.addEventListener("submit", saveVisit);
-
-loadApiUrl();

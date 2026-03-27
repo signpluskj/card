@@ -4,14 +4,48 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>봉사 카드 정보</title>
+    <meta name="theme-color" content="#1f6feb" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" href="icons/visit-house-192.svg" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div id="app">
       <header class="app-header">
-        <h1>봉사 카드 정보</h1>
-        <div id="user-info" class="user-info"></div>
+        <button id="menu-toggle" class="menu-button" type="button">☰</button>
+        <h1 id="app-title">봉사 카드 정보</h1>
+        <div class="header-right">
+          <div id="user-info" class="user-info"></div>
+        </div>
       </header>
+      <div id="global-info" class="global-info">
+        <div id="car-info" class="car-info hidden"></div>
+        <div id="status-message" class="status-message"></div>
+      </div>
+      <nav id="side-menu" class="side-menu hidden">
+        <div class="side-menu-content">
+          <div class="side-menu-header">
+            <span>메뉴</span>
+            <button id="menu-close" class="icon-button" type="button">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+          <ul class="side-menu-list">
+            <li><button type="button" data-menu="volunteer">봉사 신청</button></li>
+            <li class="leader-only"><button type="button" data-menu="car-assign">차량 배정</button></li>
+            <li class="menu-separator admin-only"><span></span></li>
+            <li class="admin-only"><button type="button" data-menu="admin-cards">구역카드 관리</button></li>
+            <li class="admin-only"><button type="button" data-menu="admin-ev">전도인 명단 관리</button></li>
+            <li class="admin-only"><button type="button" data-menu="visits">완료 내역</button></li>
+            <li class="admin-only"><button type="button" data-menu="admin-deleted">삭제 카드</button></li>
+            <li class="admin-only"><button type="button" data-menu="invite-campaign">초대장 배부</button></li>
+            <li class="menu-separator super-admin-only"><span></span></li>
+            <li class="super-admin-only"><button type="button" data-menu="config">연결 설정</button></li>
+          </ul>
+        </div>
+      </nav>
       <main>
         <div id="area-overlay" class="area-overlay hidden">
           <div class="area-overlay-content">
@@ -22,9 +56,121 @@
             <div id="area-list-overlay" class="list"></div>
           </div>
         </div>
-        <section id="config-panel" class="panel hidden">
-          <div class="panel-header">
+        <div id="completion-overlay" class="area-overlay hidden">
+          <div class="area-overlay-content">
+            <div class="area-overlay-header">
+              <span>완료 내역</span>
+              <button id="close-completion" class="icon-button" type="button">✕</button>
+            </div>  
+            <div id="completion-area-list" class="list"></div>
+          </div>
+        </div>
+        <div id="volunteer-overlay" class="area-overlay hidden">
+          <div class="area-overlay-content">
+            <div class="area-overlay-header">
+              <span>봉사 신청</span>
+              <button id="close-volunteer" class="icon-button" type="button">✕</button>
+            </div>
+            <div id="volunteer-body" class="volunteer-body"></div>
+          </div>
+        </div>
+        <div id="car-assign-overlay" class="area-overlay hidden">
+          <div class="area-overlay-content">
+            <div class="area-overlay-header">
+              <span>차량 배정</span>
+              <button id="close-car-assign" class="icon-button" type="button">✕</button>
+            </div>
+            <div class="car-assign-body">
+              <div class="car-assign-left">
+                <div id="car-assign-evangelist-list" class="list"></div>
+              </div>
+              <div class="car-assign-right">
+                <div class="car-assign-top-controls">
+                  <div id="car-assign-today-display" class="volunteer-today-label"></div>
+                  <div id="car-assign-day-list" class="weekday-scroll"></div>
+                  <div id="car-assign-slot-list" class="car-assign-slot-row"></div>
+                </div>
+                <div class="car-assign-actions">
+                  <button id="car-assign-auto" type="button">자동 배정</button>
+                  <button id="car-assign-add" type="button">차량 추가</button>
+                  <button id="car-assign-assign-cards" type="button">카드 배정</button>
+                  <button id="car-assign-save" type="button">배정 저장</button>
+                  <button id="car-assign-reset" type="button" class="car-assign-reset">초기화</button>
+                </div>
+                <div id="car-assign-meta" class="car-assign-meta"></div>
+                <div id="car-assign-selected" class="car-assign-selected"></div>
+                <div id="car-assign-panel" class="car-assign-panel"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="invite-overlay" class="area-overlay hidden">
+          <div class="area-overlay-content">
+            <div class="area-overlay-header">
+              <span>초대장 배부</span>
+              <button id="close-invite" class="icon-button" type="button">✕</button>
+            </div>
+            <div class="invite-body">
+              <div id="invite-meta" class="invite-meta"></div>
+              <div class="invite-actions">
+                <button id="invite-start" type="button">배부 시작</button>
+                <button id="invite-stop" type="button">배부 종료</button>
+                <button id="invite-refresh" type="button">통계 새로고침</button>
+              </div>
+              <div id="invite-stats" class="invite-stats"></div>
+            </div>
+          </div>
+        </div>
+        <div id="car-select-overlay" class="area-overlay hidden">
+          <div class="area-overlay-content">
+            <div class="area-overlay-header">
+              <span>어느 차량에 배정할까요?</span>
+              <button id="close-car-select" class="icon-button" type="button">✕</button>
+            </div>
+            <div id="car-select-list" class="car-select-list"></div>
+          </div>
+        </div>
+        <div id="admin-overlay" class="area-overlay hidden">
+          <div class="area-overlay-content">
+            <div class="area-overlay-header">
+              <span id="admin-overlay-title">구역카드 관리</span>
+              <button id="close-admin" class="icon-button" type="button">✕</button>
+            </div>
+            <div class="admin-overlay-body">
+              <section id="admin-panel" class="panel admin-panel">
+                <div class="panel-body">
+                  <div class="admin-grid">
+                    <div id="admin-panel-content">
+                      <section id="admin-cards-section">
+                        <h3>구역카드 관리 (방문금지/6개월)</h3>
+                        <div id="admin-cards-list" class="list"></div>
+                      </section>
+
+                      <section id="admin-completions-section">
+                        <h3>완료 내역</h3>
+                        <div id="admin-completions-list" class="list"></div>
+                      </section>
+
+                      <section id="admin-evangelists-section">
+                        <h3>전도인 명단 관리</h3>
+                        <div id="admin-evangelist-list" class="list"></div>
+                      </section>
+
+                      <section id="admin-deleted-section">
+                        <h3>삭제된 카드 목록</h3>
+                        <div id="admin-deleted-card-list" class="list"></div>
+                      </section>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+        <section id="config-panel" class="panel hidden super-admin-only" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 2000; width: 90%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #444;">
+          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
             <h2>연결 설정</h2>
+            <button id="close-config" class="icon-button" type="button" style="font-size: 20px;">✕</button>
           </div>
           <div class="panel-body">
             <label class="field">
@@ -32,6 +178,11 @@
               <input id="api-url-input" type="text" placeholder="https://script.google.com/macros/s/..." />
             </label>
             <button id="save-api-url">저장</button>
+            <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 10px;">
+              <button id="sync-to-supabase" style="background-color: #10b981;">구글 시트 데이터를 Supabase로 동기화</button>
+              <button id="sync-to-sheets" style="background-color: #f59e0b; color: white;">Supabase 데이터를 구글 시트로 덮어쓰기</button>
+              <button id="backup-to-excel" style="background-color: #3b82f6;">Supabase 데이터 엑셀 백업 (.xlsx)</button>
+            </div>
           </div>
         </section>
         <section id="login-panel" class="panel">
@@ -60,29 +211,25 @@
           <section class="panel content-panel">
             <div class="panel-header">
               <h2 id="area-title" class="hidden">구역 선택</h2>
-              <div id="leader-actions" class="actions hidden">
-                <button id="start-service">오늘 봉사 시작</button>
-              </div>
             </div>
             <div class="panel-body">
               <div id="top-menu" class="top-menu">
                 <label class="menu-field">
-                  <span>구역</span>
                   <select id="filter-area"></select>
                 </label>
                 <label class="menu-field">
-                  <span>방문상태</span>
                   <select id="filter-visit">
                     <option value="all">전체</option>
                     <option value="meet">만남</option>
                     <option value="absent">부재</option>
-                    <option value="invite">초대장</option>
+                    <option value="campaign-unvisited">초대장 미방문</option>
+                    <option value="revisit">재방</option>
+                    <option value="study">연구</option>
                     <option value="six">6개월</option>
                     <option value="banned">방문금지</option>
                   </select>
                 </label>
                 <label class="menu-field menu-search">
-                  <span>주소 검색어</span>
                   <div class="search-row">
                     <input id="search-input" type="text" placeholder="주소 입력" />
                     <button id="search-button" type="button">검색</button>
@@ -90,7 +237,6 @@
                 </label>
               </div>
               <div id="area-list-inline" class="list area-inline-list"></div>
-              <div id="status-message" class="status-message"></div>
               <div id="card-list" class="card-grid"></div>
               <form id="visit-form" class="visit-form hidden">
                 <h3 id="visit-title">방문 기록</h3>
@@ -107,7 +253,8 @@
                   <select id="visit-result">
                     <option value="만남">만남</option>
                     <option value="부재">부재</option>
-                    <option value="초대장">초대장</option>
+                    <option value="재방">재방</option>
+                    <option value="연구">연구</option>
                     <option value="6개월">6개월</option>
                     <option value="방문금지">방문금지</option>
                   </select>
@@ -116,29 +263,16 @@
                   <span>메모</span>
                   <input id="visit-note" type="text" />
                 </label>
-                <button id="save-visit" type="submit">저장</button>
+                <div class="visit-actions">
+                  <button id="save-visit" type="submit">저장</button>
+                  <div class="visit-flag-buttons">
+                    <button id="visit-clear-revisit" type="button">재방 해제</button>
+                    <button id="visit-clear-study" type="button">연구 해제</button>
+                    <button id="visit-clear-six" type="button">6개월 해제</button>
+                    <button id="visit-clear-banned" type="button">방문금지 해제</button>
+                  </div>
+                </div>
               </form>
-            </div>
-          </section>
-          <section id="admin-panel" class="panel admin-panel hidden">
-            <div class="panel-header">
-              <h2>관리자 보기</h2>
-            </div>
-            <div class="panel-body">
-              <div class="admin-grid">
-                <div>
-                  <h3>완료내역</h3>
-                  <div id="completion-list" class="list"></div>
-                </div>
-                <div>
-                  <h3>방문내역</h3>
-                  <div id="visit-list" class="list"></div>
-                </div>
-                <div>
-                  <h3>전도인 명단</h3>
-                  <div id="evangelist-list" class="list"></div>
-                </div>
-              </div>
             </div>
           </section>
         </section>
@@ -149,6 +283,16 @@
       <span id="loading-text">데이터 불러오는 중...</span>
     </div>
     <script src="config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    <script src="app.utils.js"></script>
+    <script src="app.data.js"></script>
+    <script src="app.cards.js"></script>
     <script src="app.js"></script>
+    <script src="app.admin.js"></script>
+    <script src="app.service.js"></script>
+    <script src="app.auth.js"></script>
+    <script src="app.ui.js"></script>
+    <script src="app.events.js"></script>
   </body>
 </html>
